@@ -39,9 +39,51 @@ source .venv/bin/activate
 pip install boto3
 ```
 
-- Des credentials AWS configurés (`aws configure` ou variables d'environnement) pour la région du lab.
+- Une clé d'accès AWS (Access Key ID + Secret Access Key) fournie pour le lab.
 
 > **Coût et durée** : la création d'une instance RDS prend réellement 5 à 10 minutes. Pensez à lancer la création tôt dans une section et à enchaîner sur la suite pendant le provisioning. **Supprimez vos instances en fin de lab** (section [Nettoyage](#10--nettoyage-fin-de-lab)) pour éviter des frais résiduels.
+
+## Configuration des clés d'accès (boto3 uniquement)
+
+Ce lab n'utilise pas l'AWS CLI : boto3 sait lire les credentials directement, sans passer par `aws configure`. Deux méthodes possibles — choisissez-en une.
+
+**Méthode 1 — Variables d'environnement** (la plus simple pour un lab, rien n'est écrit sur disque) :
+
+```bash
+export AWS_ACCESS_KEY_ID="<votre access key id>"
+export AWS_SECRET_ACCESS_KEY="<votre secret access key>"
+export AWS_DEFAULT_REGION="eu-west-1"
+```
+
+boto3 les détecte automatiquement, sans aucune configuration dans le script.
+
+**Méthode 2 — Fichiers de configuration**, créés manuellement (sans aws-cli) :
+
+`~/.aws/credentials` :
+
+```ini
+[default]
+aws_access_key_id = <votre access key id>
+aws_secret_access_key = <votre secret access key>
+```
+
+`~/.aws/config` :
+
+```ini
+[default]
+region = eu-west-1
+```
+
+Dans les deux cas, vérifiez que boto3 trouve bien vos credentials avant de continuer :
+
+```python
+import boto3
+
+print(boto3.Session().get_credentials().access_key)
+print(boto3.client("sts").get_caller_identity()["Account"])
+```
+
+> **Sécurité** : ne mettez jamais de clé d'accès en dur dans le script ni dans un fichier versionné. Les variables d'environnement ne survivent qu'à la session de terminal courante — c'est volontaire pour un lab ponctuel.
 
 ## Architecture du script
 
