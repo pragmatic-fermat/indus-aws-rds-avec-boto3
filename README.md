@@ -1,6 +1,6 @@
 # Lab — Industrialiser la création de bases RDS avec boto3
 
-**Durée : 2h** · **Niveau : confirmé (Python + AWS)**
+**Durée : 2h15** · **Niveau : confirmé (Python + AWS)**
 
 ## Contexte
 
@@ -147,9 +147,10 @@ Le fichier `rds_provisioning.py` sera créé puis complété au fil des sections
 | 4 | [DB Parameter Group](#4--db-parameter-group) | 15 min |
 | 5 | [Création de l'instance RDS](#5--création-de-linstance-rds) | 20 min |
 | 6 | [Vérification des ressources](#6--vérification-des-ressources) | 10 min |
-| 7 | [Modification contrôlée](#7--modification-contrôlée) | 10 min |
-| 8 | [Suppression contrôlée](#8--suppression-contrôlée) | 10 min |
-| 9 | [Généralisation en template réutilisable](#9--généralisation-en-template-réutilisable) | 15 min |
+| 7 | [Test de connexion SQL](#7--test-de-connexion-sql) | 10 min |
+| 8 | [Modification contrôlée](#8--modification-contrôlée) | 10 min |
+| 9 | [Suppression contrôlée](#9--suppression-contrôlée) | 10 min |
+| 10 | [Généralisation en template réutilisable](#10--généralisation-en-template-réutilisable) | 15 min |
 | — | [Nettoyage final](#nettoyage-fin-de-lab) | 10 min |
 
 ---
@@ -164,7 +165,7 @@ Renseignez d'abord vos identifiants réseau (reçus via le lien secret éphémè
 cp .env.example .env
 ```
 
-Éditez `.env` (`VPC_ID`, `PRIVATE_SUBNET_1`/`PRIVATE_SUBNET_2`, `USER_ID`, et la ligne `ALLOWED_CIDR` — choisissez **une** des 3 options en commentaire dans le fichier : CIDR du VPC partagé, votre IP publique via `ip.me`, ou un CIDR libre ; décommentez `PUBLIC_SUBNET_1`/`PUBLIC_SUBNET_2` si vous prenez l'option IP publique). Puis chargez ces valeurs dans votre terminal :
+Éditez `.env` (`VPC_ID`, `PRIVATE_SUBNET_1`/`PRIVATE_SUBNET_2`, `USER_ID`, `MASTER_PASSWORD`, et la ligne `ALLOWED_CIDR` — choisissez **une** des 3 options en commentaire dans le fichier : CIDR du VPC partagé, votre IP publique via `ip.me`, ou un CIDR libre ; décommentez `PUBLIC_SUBNET_1`/`PUBLIC_SUBNET_2` si vous prenez l'option IP publique). Puis chargez ces valeurs dans votre terminal :
 
 ```bash
 source .env
@@ -189,6 +190,7 @@ PRIVATE_SUBNET_IDS = ["$PRIVATE_SUBNET_1", "$PRIVATE_SUBNET_2"]  # 2 AZ minimum
 PUBLIC_SUBNET_IDS = ["$PUBLIC_SUBNET_1", "$PUBLIC_SUBNET_2"]  # 2 AZ minimum, avec route vers une Internet Gateway
 ALLOWED_CIDR = "$ALLOWED_CIDR"  # réseau autorisé à se connecter aux bases
 USER_ID = "$USER_ID"  # VOTRE numéro de participant (1, 2, 3...) ; 0 = animateur
+MASTER_PASSWORD = "$MASTER_PASSWORD"  # mot de passe administrateur des instances RDS (lab uniquement)
 
 # Si ALLOWED_CIDR est une plage privée (RFC1918, ex. le CIDR du VPC), la base reste privée.
 # Si c'est une IP/plage routable sur Internet (ex. votre IP publique), la base est rendue publique
@@ -205,6 +207,7 @@ def _require_non_empty(name: str, value: str) -> None:
 _require_non_empty("VPC_ID", VPC_ID)
 _require_non_empty("USER_ID", USER_ID)
 _require_non_empty("ALLOWED_CIDR", ALLOWED_CIDR)
+_require_non_empty("MASTER_PASSWORD", MASTER_PASSWORD)
 for _i, _subnet in enumerate(PRIVATE_SUBNET_IDS, start=1):
     _require_non_empty(f"PRIVATE_SUBNET_{_i}", _subnet)
 if PUBLICLY_ACCESSIBLE:
@@ -472,14 +475,14 @@ python3 -c "import rds_provisioning as p; print(p.create_parameter_group('mariad
 
 ## 5 — Création de l'instance RDS
 
-On assemble les briques précédentes (Security Group, Subnet Group, Parameter Group) pour créer l'instance. C'est ici qu'apparaît le nom qu'on retrouvera ensuite dans toutes les sections suivantes : `identifier = resource_name(engine, "lab")`, soit **`mariadb-lab-user<USER_ID>`** et **`postgres-lab-user<USER_ID>`** — le suffixe `"lab"` est le même partout (sections 5 à 8), c'est ce qui permet à `wait_for_instance_available`, `check_resources`, `resize_instance` et `delete_instance` de retrouver l'instance sans qu'on retape son nom complet à chaque fois.
+On assemble les briques précédentes (Security Group, Subnet Group, Parameter Group) pour créer l'instance. C'est ici qu'apparaît le nom qu'on retrouvera ensuite dans toutes les sections suivantes : `identifier = resource_name(engine, "lab")`, soit **`mariadb-lab-user<USER_ID>`** et **`postgres-lab-user<USER_ID>`** — le suffixe `"lab"` est le même partout (sections 5 à 9), c'est ce qui permet à `wait_for_instance_available`, `check_resources`, `test_connection`, `resize_instance` et `delete_instance` de retrouver l'instance sans qu'on retape son nom complet à chaque fois.
 
 ```bash
 cat >> rds_provisioning.py << 'EOF'
 
 
 def create_rds_instance(engine: str, sg_id: str, subnet_group: str, parameter_group: str,
-                         master_username: str = "admin_lab") -> str:
+                         master_username: str = "admin_lab", master_password: str = MASTER_PASSWORD) -> str:
     cfg = ENGINE_CONFIG[engine]
     identifier = resource_name(engine, "lab")  # ex. mariadb-lab-user0 / postgres-lab-user0
 
@@ -491,7 +494,7 @@ def create_rds_instance(engine: str, sg_id: str, subnet_group: str, parameter_gr
             DBInstanceClass="db.t3.micro",
             AllocatedStorage=20,
             MasterUsername=master_username,
-            MasterUserPassword="ChangeMe123!",  # en réel : Secrets Manager, jamais en dur
+            MasterUserPassword=master_password,  # paramètre, défaut variabilisé via .env ; en réel : Secrets Manager, jamais en clair dans un fichier
             VpcSecurityGroupIds=[sg_id],
             DBSubnetGroupName=subnet_group,
             DBParameterGroupName=parameter_group,
@@ -525,7 +528,7 @@ Remplacez `<sg-id-mariadb>` / `<sg-id-postgres>` par les identifiants notés en 
 - le choix MariaDB vs PostgreSQL se fait uniquement via l'argument `engine` passé à `create_rds_instance('mariadb', ...)` ou `create_rds_instance('postgres', ...)` — cet argument sert de clé dans `ENGINE_CONFIG` (section 1) pour récupérer la version, le port, la famille de paramètres, et c'est `cfg["engine"]` qui est transmis à AWS via `Engine=cfg["engine"]` ;
 - `PubliclyAccessible=PUBLICLY_ACCESSIBLE` → calculé en section 1 à partir d'`ALLOWED_CIDR` : si vous avez autorisé une plage privée (CIDR du VPC), la base reste privée et déployée dans les sous-réseaux privés (conforme au standard) ; si vous avez autorisé votre IP publique, la base est à la fois rendue accessible (`PubliclyAccessible=True`) **et** déployée dans les sous-réseaux publics (`SUBNET_IDS` en section 1) pour être réellement joignable depuis Internet — un choix qui n'a de sens que dans ce lab, jamais en production sans validation explicite ;
 - `StorageEncrypted=True` → chiffrement activé par défaut, non négociable dans le standard ;
-- le mot de passe est en dur **uniquement pour le lab** — en production, on le génère et on le stocke dans AWS Secrets Manager (`create_random_password` + `secretsmanager.create_secret`), à mentionner mais pas à coder ici par manque de temps.
+- le mot de passe est un **paramètre** de `create_rds_instance` (comme `master_username`), dont la valeur par défaut vient de `MASTER_PASSWORD` (`.env`) — donc absent du code et du dépôt, mais ça reste un fichier en clair sur disque, **insuffisant en production** : on génère alors le mot de passe et on le stocke dans AWS Secrets Manager (`create_random_password` + `secretsmanager.create_secret`), à mentionner mais pas à coder ici par manque de temps.
 
 > Lancez la création pour les deux moteurs maintenant, puis continuez directement section 6 : le provisioning se fait en arrière-plan côté AWS pendant que vous codez la suite.
 
@@ -574,7 +577,69 @@ python3 -c "import rds_provisioning as p; p.check_resources('mariadb')"
 
 ---
 
-## 7 — Modification contrôlée
+## 7 — Test de connexion SQL
+
+`DBInstanceStatus = "available"` (section 6) signifie que l'instance RDS est prête côté AWS — pas qu'elle est réellement **joignable et utilisable** depuis votre poste : un Security Group trop restrictif, un mauvais `ALLOWED_CIDR`, ou un identifiant erroné passeraient inaperçus avec `describe_db_instances` seul. On ajoute donc un vrai test de connexion SQL, avec les credentials de `.env`.
+
+Installez les pilotes SQL nécessaires (uniquement pour ce test, le reste du script n'en dépend pas) :
+
+```bash
+pip install pymysql psycopg2-binary
+```
+
+```bash
+cat >> rds_provisioning.py << 'EOF'
+
+
+def test_connection(engine: str, identifier: str, master_username: str = "admin_lab", dbname: str = "postgres") -> bool:
+    instance = rds.describe_db_instances(DBInstanceIdentifier=identifier)["DBInstances"][0]
+    endpoint = instance["Endpoint"]["Address"]
+    port = instance["Endpoint"]["Port"]
+
+    try:
+        if engine == "postgres":
+            import psycopg2
+            conn = psycopg2.connect(host=endpoint, port=port, dbname=dbname,
+                                     user=master_username, password=MASTER_PASSWORD, connect_timeout=10)
+        else:  # mariadb
+            import pymysql
+            conn = pymysql.connect(host=endpoint, port=port,
+                                    user=master_username, password=MASTER_PASSWORD, connect_timeout=10)
+    except Exception as exc:
+        print(f"[{engine}] Connexion SQL échouée vers {endpoint}:{port} : {exc}")
+        if not PUBLICLY_ACCESSIBLE:
+            print(f"[{engine}] Rappel : l'instance est privée (PUBLICLY_ACCESSIBLE=False) — ce test ne "
+                  "peut réussir que depuis une machine ayant un accès réseau au VPC (bastion, Cloud9, "
+                  "VPN), pas depuis un poste personnel sans route vers les sous-réseaux privés.")
+        return False
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        print(f"[{engine}] Connexion SQL réussie sur {endpoint}:{port}")
+        return True
+    finally:
+        conn.close()
+EOF
+```
+
+**À tester** :
+
+```bash
+python3 -c "import rds_provisioning as p; p.test_connection('mariadb', p.resource_name('mariadb', 'lab'))"
+python3 -c "import rds_provisioning as p; p.test_connection('postgres', p.resource_name('postgres', 'lab'))"
+```
+
+**Résultat attendu** : `Connexion SQL réussie sur <endpoint>:<port>` pour chaque moteur.
+
+**Points clés à discuter :**
+- ce test exerce un chemin réseau différent de celui utilisé par boto3 jusqu'ici : boto3 parle au **plan de contrôle AWS** (API RDS/EC2, toujours joignable depuis Internet) ; une connexion SQL parle directement à l'**instance dans le VPC** (plan de données), qui n'est joignable depuis l'extérieur que si vous avez choisi l'option « IP publique » d'`ALLOWED_CIDR` (section 1) — sinon, ce test échouera depuis un poste personnel même si tout le reste du script fonctionne, et c'est attendu ;
+- les imports `psycopg2` / `pymysql` sont faits **dans la fonction**, pas en tête de fichier : on évite ainsi de forcer l'installation des deux pilotes pour quelqu'un qui ne testerait qu'un seul moteur.
+
+---
+
+## 8 — Modification contrôlée
 
 Une instance RDS n'est jamais figée une fois créée : si la charge augmente, on doit pouvoir la faire monter en gamme **sans la recréer** (ce qui détruirait les données). Exemple concret : `mariadb-lab-user0` a été créée en `db.t3.micro` (section 5) — on simule ici un changement de classe d'instance suite à une charge plus importante, via `modify_db_instance` plutôt qu'un clic dans la console, pour que ce changement reste scripté et traçable.
 
@@ -610,7 +675,7 @@ python3 -c "import rds_provisioning as p; i = p.rds.describe_db_instances(DBInst
 
 ---
 
-## 8 — Suppression contrôlée
+## 9 — Suppression contrôlée
 
 ```bash
 cat >> rds_provisioning.py << 'EOF'
@@ -643,14 +708,14 @@ python3 -c "import rds_provisioning as p; p.delete_instance(p.resource_name('mar
 
 ---
 
-## 9 — Généralisation en template réutilisable
+## 10 — Généralisation en template réutilisable
 
 En 15 minutes, on ne code pas une CLI complète, mais on identifie ensemble comment ce script devient un vrai template :
 
 - **Configuration externalisée** : sortir `ENGINE_CONFIG`, `VPC_ID`, `PRIVATE_SUBNET_IDS`, `ALLOWED_CIDR`, `USER_ID` dans un fichier YAML/JSON par environnement (dev/prod) ou par participant, au lieu de constantes en dur.
-- **CLI avec `argparse`** : exposer `--engine`, `--action {create,check,resize,delete}` pour piloter le script sans toucher au code.
+- **CLI avec `argparse`** : exposer `--engine`, `--action {create,check,test,resize,delete}` pour piloter le script sans toucher au code.
 - **Idempotence** : déjà géré dans les fonctions `create_*` (sections 2 à 5) en attrapant l'exception « déjà existant » de chaque service pour réutiliser la ressource au lieu de planter. `create_parameter_group` va plus loin : si la famille du groupe existant ne correspond plus au standard actuel (ex. AWS a déprécié l'ancienne version par défaut entre deux exécutions), il le recrée plutôt que de le réutiliser tel quel — un cas réellement rencontré en lab. Pour aller plus loin : appliquer la même vérification de conformité aux autres ressources (security group, subnet group).
-- **Secrets** : remplacer le mot de passe en dur par une génération + stockage dans AWS Secrets Manager.
+- **Secrets** : `MASTER_PASSWORD` est déjà sorti du code (variabilisé via `.env`, section 1) — pour aller plus loin, remplacer ce fichier en clair par une génération + stockage dans AWS Secrets Manager.
 - **Traçabilité** : journaliser chaque appel (script, paramètres, résultat) dans un fichier de log ou CloudTrail, pour l'audit de gouvernance.
 
 Squelette de CLI à esquisser ensemble (sans forcément la coder en entier) :
@@ -662,7 +727,7 @@ cat >> rds_provisioning.py << 'EOF'
 def main() -> None:
     parser = argparse.ArgumentParser(description="Provisioning RDS standardisé")
     parser.add_argument("--engine", choices=ENGINE_CONFIG.keys(), required=True)
-    parser.add_argument("--action", choices=["create", "check", "resize", "delete"], required=True)
+    parser.add_argument("--action", choices=["create", "check", "test", "resize", "delete"], required=True)
     args = parser.parse_args()
 
     if args.action == "create":
@@ -672,6 +737,8 @@ def main() -> None:
         create_rds_instance(args.engine, sg_id, subnet_group, parameter_group)
     elif args.action == "check":
         check_resources(args.engine)
+    elif args.action == "test":
+        test_connection(args.engine, resource_name(args.engine, "lab"))  # ex. mariadb-lab-user0
     elif args.action == "resize":
         resize_instance(resource_name(args.engine, "lab"))  # ex. mariadb-lab-user0
     elif args.action == "delete":
@@ -710,14 +777,14 @@ p.ec2.delete_security_group(GroupId='<sg-id-postgres>')
 
 ## Outil : génération directe du script (hors parcours pédagogique)
 
-Le dépôt fournit `generate_rds_provisioning.py`, qui exécute dans l'ordre les commandes `cat` des sections 1 à 5 pour produire directement `rds_provisioning.py` dans son état final, sans repasser section par section. Utile pour valider rapidement le support ou rejouer un test, **mais ce n'est pas le chemin recommandé pour suivre le lab** — le déroulé pas à pas reste la meilleure façon d'apprendre le contenu de chaque section.
+Le dépôt fournit `generate_rds_provisioning.py`, qui exécute dans l'ordre les commandes `cat` des sections 1 à 10 pour produire directement `rds_provisioning.py` dans son état final, sans repasser section par section. Utile pour valider rapidement le support ou rejouer un test, **mais ce n'est pas le chemin recommandé pour suivre le lab** — le déroulé pas à pas reste la meilleure façon d'apprendre le contenu de chaque section.
 
 ```bash
 source .env
 python3 generate_rds_provisioning.py
 ```
 
-Utilisez `--steps N` (1 à 5) pour générer un état intermédiaire (ex. `--steps 3` arrête après le DB Subnet Group). Le script lit les variables exportées par `.env` ; pensez à `source .env` dans le terminal où vous le lancez (même règle que pour le `cat` de la section 1).
+Utilisez `--steps N` (1 à 10) pour générer un état intermédiaire (ex. `--steps 3` arrête après le DB Subnet Group). Le script lit les variables exportées par `.env` ; pensez à `source .env` dans le terminal où vous le lancez (même règle que pour le `cat` de la section 1).
 
 ## Pour aller plus loin (hors lab)
 
