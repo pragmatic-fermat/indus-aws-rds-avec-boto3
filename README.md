@@ -186,6 +186,7 @@ Puis générez le fichier — les variables shell ci-dessus sont interpolées di
 ```bash
 cat > rds_provisioning.py << EOF
 import argparse
+import ipaddress
 import time
 
 import boto3
@@ -195,6 +196,10 @@ VPC_ID = "$VPC_ID"  # VPC unique, partagé par tout le groupe
 PRIVATE_SUBNET_IDS = ["$PRIVATE_SUBNET_1", "$PRIVATE_SUBNET_2"]  # 2 AZ minimum
 ALLOWED_CIDR = "$ALLOWED_CIDR"  # réseau autorisé à se connecter aux bases
 USER_ID = "$USER_ID"  # VOTRE numéro de participant (1, 2, 3...) ; 0 = animateur
+
+# Si ALLOWED_CIDR est une plage privée (RFC1918, ex. le CIDR du VPC), la base reste privée.
+# Si c'est une IP/plage routable sur Internet (ex. votre IP publique), la base est rendue publique.
+PUBLICLY_ACCESSIBLE = not ipaddress.ip_network(ALLOWED_CIDR, strict=False).is_private
 
 ENGINE_CONFIG = {
     "mariadb": {
@@ -243,8 +248,10 @@ python3 -c "import rds_provisioning as p; print(p.resource_name('mariadb', 'sg')
 Vérifiez aussi que `VPC_ID`, `PRIVATE_SUBNET_IDS` et `ALLOWED_CIDR` ont bien été interpolés avec vos vraies valeurs (et non `vpc-XXXXXXXX`) :
 
 ```bash
-python3 -c "import rds_provisioning as p; print(p.VPC_ID); print(p.PRIVATE_SUBNET_IDS); print(p.ALLOWED_CIDR)"
+python3 -c "import rds_provisioning as p; print(p.VPC_ID); print(p.PRIVATE_SUBNET_IDS); print(p.ALLOWED_CIDR); print(p.PUBLICLY_ACCESSIBLE)"
 ```
+
+**Résultat attendu pour `PUBLICLY_ACCESSIBLE`** : `False` si vous avez choisi l'option 1 (CIDR du VPC) ; `True` si vous avez choisi l'option 2 (votre IP publique).
 
 Si `USER_ID`, `VPC_ID`, `PRIVATE_SUBNET_IDS` ou `ALLOWED_CIDR` affichent encore les valeurs par défaut (`1`, `vpc-XXXXXXXX`...), c'est que les variables shell `VPC_ID` / `PRIVATE_SUBNET_1` / `PRIVATE_SUBNET_2` / `USER_ID` / `ALLOWED_CIDR` n'étaient pas définies dans le terminal **avant** d'exécuter la commande `cat` — redéfinissez-les puis relancez la commande `cat` (un simple `export VAR=valeur` après coup ne suffit pas : il faut régénérer le fichier).
 
@@ -423,7 +430,7 @@ def create_rds_instance(engine: str, sg_id: str, subnet_group: str, parameter_gr
         DBSubnetGroupName=subnet_group,
         DBParameterGroupName=parameter_group,
         Port=cfg["port"],
-        PubliclyAccessible=False,
+        PubliclyAccessible=PUBLICLY_ACCESSIBLE,
         StorageEncrypted=True,
         BackupRetentionPeriod=7,
         Tags=standard_tags(engine),
@@ -444,7 +451,8 @@ python3 -c "import rds_provisioning as p; p.create_rds_instance('postgres', '<sg
 Remplacez `<sg-id-mariadb>` / `<sg-id-postgres>` par les identifiants notés en section 2.
 
 **Points clés à discuter :**
-- `PubliclyAccessible=False` → déploiement en sous-réseau privé, conforme au standard ;
+- `PubliclyAccessible=PUBLICLY_ACCESSIBLE` → calculé en section 1 à partir d'`ALLOWED_CIDR` : si vous avez autorisé une plage privée (CIDR du VPC), la base reste privée (conforme au standard) ; si vous avez autorisé votre IP publique, la base est rendue accessible depuis Internet pour ce test — un choix qui n'a de sens que dans ce lab, jamais en production sans validation explicite ;
+- même avec `PubliclyAccessible=True`, l'instance reste déployée dans les sous-réseaux privés du standard ; pour qu'elle soit réellement joignable depuis Internet, ces sous-réseaux devraient avoir une route vers une Internet Gateway — ce que les sous-réseaux privés du lab n'ont pas. Ce point est volontairement laissé en discussion plutôt que codé, par manque de temps ;
 - `StorageEncrypted=True` → chiffrement activé par défaut, non négociable dans le standard ;
 - le mot de passe est en dur **uniquement pour le lab** — en production, on le génère et on le stocke dans AWS Secrets Manager (`create_random_password` + `secretsmanager.create_secret`), à mentionner mais pas à coder ici par manque de temps.
 
