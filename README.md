@@ -222,23 +222,25 @@ if PUBLICLY_ACCESSIBLE:
     for _i, _subnet in enumerate(PUBLIC_SUBNET_IDS, start=1):
         _require_non_empty(f"PUBLIC_SUBNET_{_i}", _subnet)
 
-ENGINE_CONFIG = {
-    "mariadb": {
-        "engine": "mariadb",
-        "engine_version": "10.11.6",
-        "port": 3306,
-        "parameter_group_family": "mariadb10.11",
-    },
-    "postgres": {
-        "engine": "postgres",
-        "engine_version": "16.3",
-        "port": 5432,
-        "parameter_group_family": "postgres16",
-    },
-}
-
 rds = boto3.client("rds", region_name=REGION)
 ec2 = boto3.client("ec2", region_name=REGION)
+
+
+def _default_engine_version(engine: str) -> dict:
+    """Version par défaut et famille de paramètres associée, récupérées dynamiquement
+    plutôt que codées en dur : AWS déprécie régulièrement les anciennes versions RDS,
+    une version figée finit toujours par devenir invalide."""
+    version = rds.describe_db_engine_versions(Engine=engine, DefaultOnly=True)["DBEngineVersions"][0]
+    return {
+        "engine_version": version["EngineVersion"],
+        "parameter_group_family": version["DBParameterGroupFamily"],
+    }
+
+
+ENGINE_CONFIG = {
+    "mariadb": {"engine": "mariadb", "port": 3306, **_default_engine_version("mariadb")},
+    "postgres": {"engine": "postgres", "port": 5432, **_default_engine_version("postgres")},
+}
 
 
 def standard_tags(engine: str, owner: str = "data-migration-team") -> list[dict]:
@@ -259,6 +261,8 @@ EOF
 ```
 
 `_require_non_empty()` valide, dès l'import du module, que les variables effectivement utilisées ne sont pas vides — en particulier `PUBLIC_SUBNET_IDS`, qui n'est exigé que si `PUBLICLY_ACCESSIBLE` est `True` (sinon, si vous restez en privé, vous n'avez pas besoin de renseigner `PUBLIC_SUBNET_1`/`PUBLIC_SUBNET_2`). En cas de variable requise et vide, l'import plante immédiatement avec un message clair plutôt que de continuer avec une configuration invalide.
+
+`ENGINE_CONFIG` interroge aussi AWS dès l'import (`describe_db_engine_versions`) pour récupérer la version par défaut de chaque moteur, plutôt qu'une version figée dans le code qui finirait par être dépréciée par AWS. Conséquence : **dès ce premier `import`**, vos credentials et vos droits IAM (`rds:DescribeDBEngineVersions`, couvert par `rds:*`) doivent déjà être valides — une erreur ici est donc un signal sur vos credentials/droits, pas sur `resource_name()` lui-même.
 
 **Point de vérification** : confirmez que `USER_ID` est bien le vôtre et que la convention de nommage l'inclut :
 
