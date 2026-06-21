@@ -45,7 +45,7 @@ pip install boto3
 
 > **VPC partagé** : comme tout le groupe travaille dans le même VPC, chaque participant doit suffixer ses ressources par son numéro (`-userX`) pour éviter toute collision de nom avec les autres. C'est géré automatiquement par le script via la constante `USER_ID` (section 1) — vérifiez juste que vous avez bien renseigné votre numéro avant de créer quoi que ce soit.
 
-> **Coût et durée** : la création d'une instance RDS prend réellement 5 à 10 minutes. Pensez à lancer la création tôt dans une section et à enchaîner sur la suite pendant le provisioning. **Toutes les ressources créées pendant la session sont détruites à la fin** (section [Nettoyage](#10--nettoyage-fin-de-lab)) — ne laissez rien tourner après le lab.
+> **Coût et durée** : la création d'une instance RDS prend réellement 5 à 10 minutes. Pensez à lancer la création tôt dans une section et à enchaîner sur la suite pendant le provisioning. **Toutes les ressources créées pendant la session sont détruites à la fin** (section [Nettoyage](#nettoyage-fin-de-lab)) — ne laissez rien tourner après le lab.
 
 ## Configuration des clés d'accès (boto3 uniquement)
 
@@ -141,17 +141,17 @@ Le fichier `rds_provisioning.py` sera créé puis complété au fil des sections
 
 | # | Section | Durée indicative |
 |---|---|---|
-| 1 | Mise en place & standard de configuration | 15 min |
-| 2 | Security Groups | 15 min |
-| 3 | DB Subnet Group | 10 min |
-| 4 | DB Parameter Group | 15 min |
-| 5 | Création de l'instance RDS | 20 min |
-| 6 | Tagging & gouvernance | 10 min |
-| 7 | Vérification des ressources | 10 min |
-| 8 | Modification contrôlée | 10 min |
-| 9 | Suppression contrôlée | 10 min |
-| 10 | Généralisation en template réutilisable | 15 min |
-| — | Nettoyage final | 10 min |
+| 1 | [Mise en place & standard de configuration](#1--mise-en-place--standard-de-configuration) | 15 min |
+| 2 | [Security Groups](#2--security-groups) | 15 min |
+| 3 | [DB Subnet Group](#3--db-subnet-group) | 10 min |
+| 4 | [DB Parameter Group](#4--db-parameter-group) | 15 min |
+| 5 | [Création de l'instance RDS](#5--création-de-linstance-rds) | 20 min |
+| 6 | [Tagging & gouvernance](#6--tagging--gouvernance) | 10 min |
+| 7 | [Vérification des ressources](#7--vérification-des-ressources) | 10 min |
+| 8 | [Modification contrôlée](#8--modification-contrôlée) | 10 min |
+| 9 | [Suppression contrôlée](#9--suppression-contrôlée) | 10 min |
+| 10 | [Généralisation en template réutilisable](#10--généralisation-en-template-réutilisable) | 15 min |
+| — | [Nettoyage final](#nettoyage-fin-de-lab) | 10 min |
 
 ---
 
