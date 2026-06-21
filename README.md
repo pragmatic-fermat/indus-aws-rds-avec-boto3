@@ -168,6 +168,19 @@ PRIVATE_SUBNET_2="subnet-BBBBBBBB"  # sous-réseau privé n°2 (AZ 2)
 USER_ID="1"                         # VOTRE numéro de participant (1, 2, 3...) ; 0 = animateur
 ```
 
+Choisissez ensuite **une** des options suivantes pour `ALLOWED_CIDR` (le réseau source autorisé à se connecter aux bases) :
+
+```bash
+# Option 1 — CIDR du VPC partagé : autorise toute ressource du VPC (ex. un futur bastion) à se connecter
+ALLOWED_CIDR="10.10.0.0/16"
+
+# Option 2 — votre IP publique uniquement (utile pour tester depuis votre poste via un accès réseau dédié)
+ALLOWED_CIDR="$(curl -s ip.me)/32"
+
+# Option 3 — un CIDR de votre choix
+ALLOWED_CIDR="<votre CIDR>"
+```
+
 Puis générez le fichier — les variables shell ci-dessus sont interpolées directement dans le code écrit (notez le `EOF` non quoté, qui autorise cette substitution) :
 
 ```bash
@@ -180,7 +193,7 @@ import boto3
 REGION = "eu-west-1"  # adaptez à la région de votre sandbox
 VPC_ID = "$VPC_ID"  # VPC unique, partagé par tout le groupe
 PRIVATE_SUBNET_IDS = ["$PRIVATE_SUBNET_1", "$PRIVATE_SUBNET_2"]  # 2 AZ minimum
-ALLOWED_CIDR = "10.0.0.0/8"  # réseau autorisé à se connecter aux bases
+ALLOWED_CIDR = "$ALLOWED_CIDR"  # réseau autorisé à se connecter aux bases
 USER_ID = "$USER_ID"  # VOTRE numéro de participant (1, 2, 3...) ; 0 = animateur
 
 ENGINE_CONFIG = {
@@ -227,13 +240,13 @@ python3 -c "import rds_provisioning as p; print(p.resource_name('mariadb', 'sg')
 
 **Résultat attendu** : `mariadb-sg-user<votre numéro>` (par exemple `mariadb-sg-user0` pour l'animateur).
 
-Vérifiez aussi que `VPC_ID` et `PRIVATE_SUBNET_IDS` ont bien été interpolés avec vos vraies valeurs (et non `vpc-XXXXXXXX`) :
+Vérifiez aussi que `VPC_ID`, `PRIVATE_SUBNET_IDS` et `ALLOWED_CIDR` ont bien été interpolés avec vos vraies valeurs (et non `vpc-XXXXXXXX`) :
 
 ```bash
-python3 -c "import rds_provisioning as p; print(p.VPC_ID); print(p.PRIVATE_SUBNET_IDS)"
+python3 -c "import rds_provisioning as p; print(p.VPC_ID); print(p.PRIVATE_SUBNET_IDS); print(p.ALLOWED_CIDR)"
 ```
 
-Si `USER_ID`, `VPC_ID` ou `PRIVATE_SUBNET_IDS` affichent encore les valeurs par défaut (`1`, `vpc-XXXXXXXX`...), c'est que les variables shell `VPC_ID` / `PRIVATE_SUBNET_1` / `PRIVATE_SUBNET_2` / `USER_ID` n'étaient pas définies dans le terminal **avant** d'exécuter la commande `cat` — redéfinissez-les puis relancez la commande `cat` (un simple `export VAR=valeur` après coup ne suffit pas : il faut régénérer le fichier).
+Si `USER_ID`, `VPC_ID`, `PRIVATE_SUBNET_IDS` ou `ALLOWED_CIDR` affichent encore les valeurs par défaut (`1`, `vpc-XXXXXXXX`...), c'est que les variables shell `VPC_ID` / `PRIVATE_SUBNET_1` / `PRIVATE_SUBNET_2` / `USER_ID` / `ALLOWED_CIDR` n'étaient pas définies dans le terminal **avant** d'exécuter la commande `cat` — redéfinissez-les puis relancez la commande `cat` (un simple `export VAR=valeur` après coup ne suffit pas : il faut régénérer le fichier).
 
 Puis confirmez que les credentials et la région sont valides avec un appel API inoffensif :
 
