@@ -501,6 +501,9 @@ EOF
 
 ```bash
 python3 -c "import rds_provisioning as p; p.create_rds_instance('mariadb', '<sg-id-mariadb>', p.resource_name('mariadb', 'subnet-group'), p.resource_name('mariadb', 'params'))"
+```
+
+```bash
 python3 -c "import rds_provisioning as p; p.create_rds_instance('postgres', '<sg-id-postgres>', p.resource_name('postgres', 'subnet-group'), p.resource_name('postgres', 'params'))"
 ```
 
