@@ -128,7 +128,9 @@ ENGINE_CONFIG = {
 
 Chaque fonction du script prend `engine` (`"mariadb"` ou `"postgres"`) en paramètre et va chercher la configuration correspondante. On exécutera donc le script deux fois (une fois par moteur) avec les mêmes fonctions.
 
-Créez un fichier `rds_provisioning.py` et complétez-le au fil des sections.
+*(Aperçu pédagogique uniquement — rien à taper ici, le code réel à créer est donné en section 1.)*
+
+Le fichier `rds_provisioning.py` sera créé puis complété au fil des sections, à chaque fois via une commande `cat` plutôt qu'en copiant manuellement le code dans un éditeur.
 
 ---
 
@@ -154,7 +156,8 @@ Créez un fichier `rds_provisioning.py` et complétez-le au fil des sections.
 
 On démarre le script par les imports, le client boto3, et le **standard commun** (naming, tags, configuration par moteur) qui sera réutilisé dans toutes les fonctions suivantes.
 
-```python
+```bash
+cat > rds_provisioning.py << 'EOF'
 import argparse
 import time
 
@@ -197,13 +200,16 @@ def standard_tags(engine: str, owner: str = "data-migration-team") -> list[dict]
 def resource_name(engine: str, suffix: str) -> str:
     """Convention de nommage commune : <engine>-<suffix>."""
     return f"{engine}-{suffix}"
+EOF
 ```
 
-**Point de vérification** : exécutez `python3 -c "import rds_provisioning"` (ou lancez le fichier) pour confirmer que les credentials et la région sont valides — `boto3` ne lèvera pas d'erreur tant qu'aucun appel API n'est fait, donc testez avec un appel inoffensif :
+**Point de vérification** : confirmez que les credentials et la région sont valides avec un appel API inoffensif :
 
-```python
-print(rds.describe_db_instances()["DBInstances"])
+```bash
+python3 -c "import rds_provisioning as p; print(p.rds.describe_db_instances()['DBInstances'])"
 ```
+
+**Résultat attendu** : une liste vide `[]` (aucune instance créée pour l'instant), sans erreur.
 
 ---
 
@@ -211,7 +217,10 @@ print(rds.describe_db_instances()["DBInstances"])
 
 On crée un Security Group dédié par moteur, qui n'autorise que le port du moteur depuis le réseau autorisé. C'est la brique qui garantit des **règles de sécurité homogènes**.
 
-```python
+```bash
+cat >> rds_provisioning.py << 'EOF'
+
+
 def create_db_security_group(engine: str) -> str:
     cfg = ENGINE_CONFIG[engine]
     name = resource_name(engine, "sg")
@@ -243,13 +252,20 @@ def create_db_security_group(engine: str) -> str:
 
     print(f"[{engine}] Security group créé : {sg_id} (port {cfg['port']} ouvert pour {ALLOWED_CIDR})")
     return sg_id
+EOF
 ```
 
 **Points clés à discuter en groupe :**
 - on n'ouvre **que** le port du moteur (3306 ou 5432), jamais `0.0.0.0/0` ;
 - les tags sont posés **à la création** de la ressource (`TagSpecifications`) — ce n'est pas la seule façon de tagger, on verra `add_tags_to_resource` en section 6 pour les ressources RDS qui ne supportent pas toujours le tagging à la création.
 
-**À tester** : appelez `create_db_security_group("mariadb")` et `create_db_security_group("postgres")`, notez les `sg_id` retournés, vérifiez dans la console EC2 → Security Groups que les règles d'entrée sont correctes.
+**À tester** :
+
+```bash
+python3 -c "import rds_provisioning as p; print(p.create_db_security_group('mariadb')); print(p.create_db_security_group('postgres'))"
+```
+
+Notez les deux `sg_id` affichés (`sg-...`), vérifiez dans la console EC2 → Security Groups que les règles d'entrée sont correctes.
 
 ---
 
@@ -257,7 +273,10 @@ def create_db_security_group(engine: str) -> str:
 
 RDS a besoin d'un **DB Subnet Group** pour savoir dans quels sous-réseaux privés déployer l'instance.
 
-```python
+```bash
+cat >> rds_provisioning.py << 'EOF'
+
+
 def create_subnet_group(engine: str) -> str:
     name = resource_name(engine, "subnet-group")
 
@@ -270,11 +289,18 @@ def create_subnet_group(engine: str) -> str:
 
     print(f"[{engine}] DB subnet group créé : {name}")
     return name
+EOF
 ```
 
 > `create_db_subnet_group` exige des sous-réseaux dans **au moins deux AZ différentes** — c'est ce qui garantit le déploiement en sous-réseau privé multi-AZ pour la haute disponibilité future.
 
-**À tester** : appelez la fonction pour les deux moteurs, vérifiez avec `rds.describe_db_subnet_groups()` que les groupes existent (on formalisera cette vérification en section 7).
+**À tester** :
+
+```bash
+python3 -c "import rds_provisioning as p; print(p.create_subnet_group('mariadb')); print(p.create_subnet_group('postgres'))"
+```
+
+Vérifiez avec `python3 -c "import rds_provisioning as p; print(p.rds.describe_db_subnet_groups())"` que les groupes existent (on formalisera cette vérification en section 7).
 
 ---
 
@@ -282,7 +308,10 @@ def create_subnet_group(engine: str) -> str:
 
 On crée un groupe de paramètres dédié, pour ne jamais modifier le `default.*` géré par AWS, puis on applique des paramètres standardisés (ex. forcer le chiffrement des connexions côté moteur, durcir le logging).
 
-```python
+```bash
+cat >> rds_provisioning.py << 'EOF'
+
+
 def create_parameter_group(engine: str) -> str:
     cfg = ENGINE_CONFIG[engine]
     name = resource_name(engine, "params")
@@ -311,9 +340,16 @@ def create_parameter_group(engine: str) -> str:
 
     print(f"[{engine}] Parameter group créé et configuré : {name}")
     return name
+EOF
 ```
 
 **Point clé** : `create_db_parameter_group` ne permet pas de fixer les valeurs des paramètres directement — il faut un second appel à `modify_db_parameter_group`. C'est volontairement séquentiel dans l'API AWS.
+
+**À tester** :
+
+```bash
+python3 -c "import rds_provisioning as p; print(p.create_parameter_group('mariadb')); print(p.create_parameter_group('postgres'))"
+```
 
 ---
 
@@ -321,7 +357,10 @@ def create_parameter_group(engine: str) -> str:
 
 On assemble les briques précédentes (Security Group, Subnet Group, Parameter Group) pour créer l'instance.
 
-```python
+```bash
+cat >> rds_provisioning.py << 'EOF'
+
+
 def create_rds_instance(engine: str, sg_id: str, subnet_group: str, parameter_group: str,
                          master_username: str = "admin_lab") -> str:
     cfg = ENGINE_CONFIG[engine]
@@ -347,7 +386,17 @@ def create_rds_instance(engine: str, sg_id: str, subnet_group: str, parameter_gr
 
     print(f"[{engine}] Création de l'instance {identifier} lancée (provisioning ~5-10 min)...")
     return identifier
+EOF
 ```
+
+**À tester** (lancez les deux créations, le provisioning se fait en arrière-plan) :
+
+```bash
+python3 -c "import rds_provisioning as p; p.create_rds_instance('mariadb', '<sg-id-mariadb>', p.resource_name('mariadb', 'subnet-group'), p.resource_name('mariadb', 'params'))"
+python3 -c "import rds_provisioning as p; p.create_rds_instance('postgres', '<sg-id-postgres>', p.resource_name('postgres', 'subnet-group'), p.resource_name('postgres', 'params'))"
+```
+
+Remplacez `<sg-id-mariadb>` / `<sg-id-postgres>` par les identifiants notés en section 2.
 
 **Points clés à discuter :**
 - `PubliclyAccessible=False` → déploiement en sous-réseau privé, conforme au standard ;
@@ -362,7 +411,10 @@ def create_rds_instance(engine: str, sg_id: str, subnet_group: str, parameter_gr
 
 Les tags ont déjà été posés à la création (`Tags=...` dans les appels précédents). On illustre maintenant `add_tags_to_resource`, utile pour **retagger des ressources existantes** (cas réel : appliquer le nouveau standard de gouvernance à des bases déjà migrées avant la mise en place du script).
 
-```python
+```bash
+cat >> rds_provisioning.py << 'EOF'
+
+
 def apply_governance_tags(engine: str, identifier: str, extra_tags: dict[str, str]) -> None:
     instance = rds.describe_db_instances(DBInstanceIdentifier=identifier)["DBInstances"][0]
     arn = instance["DBInstanceArn"]
@@ -371,9 +423,16 @@ def apply_governance_tags(engine: str, identifier: str, extra_tags: dict[str, st
 
     rds.add_tags_to_resource(ResourceName=arn, Tags=tags)
     print(f"[{engine}] Tags de gouvernance appliqués sur {identifier}")
+EOF
 ```
 
-**À tester** : appliquez un tag `CostCenter` sur l'une de vos instances, vérifiez-le dans la console RDS (onglet Tags de l'instance).
+**À tester** : appliquez un tag `CostCenter` sur l'une de vos instances.
+
+```bash
+python3 -c "import rds_provisioning as p; p.apply_governance_tags('mariadb', p.resource_name('mariadb', 'lab'), {'CostCenter': 'lab-formation'})"
+```
+
+Vérifiez-le dans la console RDS (onglet Tags de l'instance).
 
 ---
 
@@ -381,7 +440,10 @@ def apply_governance_tags(engine: str, identifier: str, extra_tags: dict[str, st
 
 On formalise la vérification de l'état des ressources créées, avec un mécanisme d'attente actif (polling) pour l'instance RDS dont le provisioning est asynchrone.
 
-```python
+```bash
+cat >> rds_provisioning.py << 'EOF'
+
+
 def wait_for_instance_available(identifier: str, timeout_s: int = 900, poll_s: int = 20) -> None:
     elapsed = 0
     while elapsed < timeout_s:
@@ -403,6 +465,14 @@ def check_resources(engine: str) -> None:
     print(f"[{engine}] Instance status   : {instances['DBInstances'][0]['DBInstanceStatus']}")
     print(f"[{engine}] Subnet group      : {subnet_groups['DBSubnetGroups'][0]['DBSubnetGroupName']}")
     print(f"[{engine}] Parameter group   : {parameter_groups['DBParameterGroups'][0]['DBParameterGroupName']}")
+EOF
+```
+
+**À tester** :
+
+```bash
+python3 -c "import rds_provisioning as p; p.wait_for_instance_available(p.resource_name('mariadb', 'lab'))"
+python3 -c "import rds_provisioning as p; p.check_resources('mariadb')"
 ```
 
 > boto3 propose aussi des **waiters** natifs (`rds.get_waiter("db_instance_available").wait(...)`) qui font le même travail que `wait_for_instance_available` avec un peu moins de code. On a écrit la version manuelle pour comprendre le mécanisme ; mentionnez le waiter natif comme alternative en production.
@@ -411,7 +481,10 @@ def check_resources(engine: str) -> None:
 
 ## 8 — Modification contrôlée
 
-```python
+```bash
+cat >> rds_provisioning.py << 'EOF'
+
+
 def resize_instance(identifier: str, new_class: str = "db.t3.small") -> None:
     rds.modify_db_instance(
         DBInstanceIdentifier=identifier,
@@ -419,6 +492,13 @@ def resize_instance(identifier: str, new_class: str = "db.t3.small") -> None:
         ApplyImmediately=True,
     )
     print(f"Modification lancée sur {identifier} -> {new_class}")
+EOF
+```
+
+**À tester** :
+
+```bash
+python3 -c "import rds_provisioning as p; p.resize_instance(p.resource_name('mariadb', 'lab'))"
 ```
 
 **Point clé** : `ApplyImmediately=True` applique le changement tout de suite (avec une coupure courte) ; à `False`, le changement attend la prochaine fenêtre de maintenance. En gouvernance de production, on documente ce choix par moteur — à discuter avec le groupe.
@@ -427,7 +507,10 @@ def resize_instance(identifier: str, new_class: str = "db.t3.small") -> None:
 
 ## 9 — Suppression contrôlée
 
-```python
+```bash
+cat >> rds_provisioning.py << 'EOF'
+
+
 def delete_instance(identifier: str, take_final_snapshot: bool = True) -> None:
     kwargs = {"DBInstanceIdentifier": identifier}
     if take_final_snapshot:
@@ -442,6 +525,13 @@ def delete_instance(identifier: str, take_final_snapshot: bool = True) -> None:
 
     rds.delete_db_instance(**kwargs)
     print(f"Suppression de {identifier} lancée.")
+EOF
+```
+
+**À tester** :
+
+```bash
+python3 -c "import rds_provisioning as p; p.delete_instance(p.resource_name('mariadb', 'lab'), take_final_snapshot=False)"
 ```
 
 **Point clé** : la confirmation interactive n'est pas une API AWS — c'est un garde-fou qu'on ajoute nous-mêmes dans le template pour éviter une suppression accidentelle en production. C'est ce genre de détail qui distingue un script ponctuel d'un **template industrialisé**.
@@ -460,7 +550,10 @@ En 15 minutes, on ne code pas une CLI complète, mais on identifie ensemble comm
 
 Squelette de CLI à esquisser ensemble (sans forcément la coder en entier) :
 
-```python
+```bash
+cat >> rds_provisioning.py << 'EOF'
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Provisioning RDS standardisé")
     parser.add_argument("--engine", choices=ENGINE_CONFIG.keys(), required=True)
@@ -482,6 +575,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+EOF
 ```
 
 ---
@@ -497,13 +591,16 @@ python3 rds_provisioning.py --engine postgres --action delete
 
 Puis, une fois les instances supprimées (vérifiez via `check_resources` ou la console), supprimez les ressources annexes :
 
-```python
-rds.delete_db_subnet_group(DBSubnetGroupName=resource_name("mariadb", "subnet-group"))
-rds.delete_db_subnet_group(DBSubnetGroupName=resource_name("postgres", "subnet-group"))
-rds.delete_db_parameter_group(DBParameterGroupName=resource_name("mariadb", "params"))
-rds.delete_db_parameter_group(DBParameterGroupName=resource_name("postgres", "params"))
-ec2.delete_security_group(GroupId="<sg-id-mariadb>")
-ec2.delete_security_group(GroupId="<sg-id-postgres>")
+```bash
+python3 -c "
+import rds_provisioning as p
+p.rds.delete_db_subnet_group(DBSubnetGroupName=p.resource_name('mariadb', 'subnet-group'))
+p.rds.delete_db_subnet_group(DBSubnetGroupName=p.resource_name('postgres', 'subnet-group'))
+p.rds.delete_db_parameter_group(DBParameterGroupName=p.resource_name('mariadb', 'params'))
+p.rds.delete_db_parameter_group(DBParameterGroupName=p.resource_name('postgres', 'params'))
+p.ec2.delete_security_group(GroupId='<sg-id-mariadb>')
+p.ec2.delete_security_group(GroupId='<sg-id-postgres>')
+"
 ```
 
 ## Pour aller plus loin (hors lab)
