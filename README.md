@@ -574,6 +574,8 @@ python3 -c "import rds_provisioning as p; p.check_resources('mariadb')"
 
 ## 7 — Modification contrôlée
 
+Une instance RDS n'est jamais figée une fois créée : si la charge augmente, on doit pouvoir la faire monter en gamme **sans la recréer** (ce qui détruirait les données). Exemple concret : `mariadb-lab-user0` a été créée en `db.t3.micro` (section 5) — on simule ici un changement de classe d'instance suite à une charge plus importante, via `modify_db_instance` plutôt qu'un clic dans la console, pour que ce changement reste scripté et traçable.
+
 ```bash
 cat >> rds_provisioning.py << 'EOF'
 
@@ -588,11 +590,19 @@ def resize_instance(identifier: str, new_class: str = "db.t3.small") -> None:
 EOF
 ```
 
-**À tester** :
+**À tester** — passez `mariadb-lab-user0` de `db.t3.micro` à `db.t3.small` :
 
 ```bash
 python3 -c "import rds_provisioning as p; p.resize_instance(p.resource_name('mariadb', 'lab'))"
 ```
+
+Le changement n'est pas instantané : l'instance passe par le statut `modifying` pendant quelques minutes. Vérifiez la progression et la classe finale :
+
+```bash
+python3 -c "import rds_provisioning as p; i = p.rds.describe_db_instances(DBInstanceIdentifier=p.resource_name('mariadb', 'lab'))['DBInstances'][0]; print(i['DBInstanceStatus'], i['DBInstanceClass'])"
+```
+
+**Résultat attendu** : `modifying db.t3.micro` juste après l'appel, puis `available db.t3.small` une fois la modification terminée.
 
 **Point clé** : `ApplyImmediately=True` applique le changement tout de suite (avec une coupure courte) ; à `False`, le changement attend la prochaine fenêtre de maintenance. En gouvernance de production, on documente ce choix par moteur — à discuter avec le groupe.
 
