@@ -39,7 +39,7 @@ pip install boto3
 
 - Une clé d'accès AWS (Access Key ID + Secret Access Key) transmise en début de session via un lien secret éphémère — voir [Configuration des clés d'accès](#configuration-des-clés-daccès-boto3-uniquement).
 - Un accès à un compte AWS sandbox **commun à tous les participants**, avec :
-  - un **VPC unique, partagé** par l'ensemble du groupe (mêmes `VPC_ID` et sous-réseaux privés pour tout le monde, au moins 2 AZ différentes, en **eu-west-1**) ;
+  - un **VPC unique, partagé** par l'ensemble du groupe (mêmes `VPC_ID` et sous-réseaux privés pour tout le monde, au moins 2 AZ différentes, en **eu-west-1**) — l'identifiant réel du VPC et des sous-réseaux vous sera communiqué via le même lien secret éphémère que les clés d'accès, à reporter dans les constantes `VPC_ID` / `PRIVATE_SUBNET_IDS` du script (ce ne sont pas des secrets à proprement parler, mais des identifiants d'infrastructure propres à la session, qui n'ont pas vocation à être publiés dans ce support) ;
   - des droits IAM sur `rds:*`, `ec2:*SecurityGroup*`, `ec2:Describe*` ;
 - Votre **numéro de participant** (1, 2, 3...), communiqué par l'animateur en même temps que les clés d'accès — `0` est réservé à l'animateur.
 
