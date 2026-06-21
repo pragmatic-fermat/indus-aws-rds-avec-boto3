@@ -428,10 +428,12 @@ def create_parameter_group(engine: str) -> str:
     if engine == "postgres":
         parameters = [
             {"ParameterName": "log_connections", "ParameterValue": "1", "ApplyMethod": "pending-reboot"},
+            {"ParameterName": "rds.force_ssl", "ParameterValue": "1", "ApplyMethod": "pending-reboot"},
         ]
     else:  # mariadb
         parameters = [
             {"ParameterName": "general_log", "ParameterValue": "1", "ApplyMethod": "pending-reboot"},
+            {"ParameterName": "require_secure_transport", "ParameterValue": "1", "ApplyMethod": "pending-reboot"},
         ]
 
     rds.modify_db_parameter_group(
@@ -444,7 +446,9 @@ def create_parameter_group(engine: str) -> str:
 EOF
 ```
 
-**Point clé** : `create_db_parameter_group` ne permet pas de fixer les valeurs des paramètres directement — il faut un second appel à `modify_db_parameter_group`. C'est volontairement séquentiel dans l'API AWS.
+**Points clés à discuter :**
+- `create_db_parameter_group` ne permet pas de fixer les valeurs des paramètres directement — il faut un second appel à `modify_db_parameter_group`. C'est volontairement séquentiel dans l'API AWS ;
+- `require_secure_transport` (MariaDB) et `rds.force_ssl` (PostgreSQL) forcent le chiffrement des connexions **applicatives** côté moteur (TLS entre le client et la base) — à distinguer de `StorageEncrypted` (section 5), qui chiffre les données **au repos** sur le disque. Les deux sont nécessaires pour un chiffrement de bout en bout conforme au standard.
 
 **À tester** :
 
