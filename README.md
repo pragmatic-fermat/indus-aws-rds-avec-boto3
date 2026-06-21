@@ -192,6 +192,7 @@ import ipaddress
 import time
 
 import boto3
+import botocore
 
 REGION = "eu-west-1"  # adaptez à la région de votre sandbox
 VPC_ID = "$VPC_ID"  # VPC unique, partagé par tout le groupe
@@ -301,18 +302,28 @@ def create_db_security_group(engine: str) -> str:
     cfg = ENGINE_CONFIG[engine]
     name = resource_name(engine, "sg")
 
-    response = ec2.create_security_group(
-        GroupName=name,
-        Description=f"Security group for {engine} RDS instances",
-        VpcId=VPC_ID,
-        TagSpecifications=[
-            {
-                "ResourceType": "security-group",
-                "Tags": standard_tags(engine),
-            }
-        ],
-    )
-    sg_id = response["GroupId"]
+    try:
+        response = ec2.create_security_group(
+            GroupName=name,
+            Description=f"Security group for {engine} RDS instances",
+            VpcId=VPC_ID,
+            TagSpecifications=[
+                {
+                    "ResourceType": "security-group",
+                    "Tags": standard_tags(engine),
+                }
+            ],
+        )
+        sg_id = response["GroupId"]
+    except botocore.exceptions.ClientError as exc:
+        if exc.response["Error"]["Code"] != "InvalidGroup.Duplicate":
+            raise
+        existing = ec2.describe_security_groups(
+            Filters=[{"Name": "group-name", "Values": [name]}, {"Name": "vpc-id", "Values": [VPC_ID]}]
+        )
+        sg_id = existing["SecurityGroups"][0]["GroupId"]
+        print(f"[{engine}] Security group déjà existant, réutilisé : {sg_id}")
+        return sg_id
 
     ec2.authorize_security_group_ingress(
         GroupId=sg_id,
@@ -356,14 +367,17 @@ cat >> rds_provisioning.py << 'EOF'
 def create_subnet_group(engine: str) -> str:
     name = resource_name(engine, "subnet-group")
 
-    rds.create_db_subnet_group(
-        DBSubnetGroupName=name,
-        DBSubnetGroupDescription=f"Subnets for {engine} RDS instances",
-        SubnetIds=SUBNET_IDS,
-        Tags=standard_tags(engine),
-    )
+    try:
+        rds.create_db_subnet_group(
+            DBSubnetGroupName=name,
+            DBSubnetGroupDescription=f"Subnets for {engine} RDS instances",
+            SubnetIds=SUBNET_IDS,
+            Tags=standard_tags(engine),
+        )
+        print(f"[{engine}] DB subnet group créé : {name}")
+    except rds.exceptions.DBSubnetGroupAlreadyExistsFault:
+        print(f"[{engine}] DB subnet group déjà existant, réutilisé : {name}")
 
-    print(f"[{engine}] DB subnet group créé : {name}")
     return name
 EOF
 ```
@@ -397,12 +411,16 @@ def create_parameter_group(engine: str) -> str:
     cfg = ENGINE_CONFIG[engine]
     name = resource_name(engine, "params")
 
-    rds.create_db_parameter_group(
-        DBParameterGroupName=name,
-        DBParameterGroupFamily=cfg["parameter_group_family"],
-        Description=f"Standard parameter group for {engine}",
-        Tags=standard_tags(engine),
-    )
+    try:
+        rds.create_db_parameter_group(
+            DBParameterGroupName=name,
+            DBParameterGroupFamily=cfg["parameter_group_family"],
+            Description=f"Standard parameter group for {engine}",
+            Tags=standard_tags(engine),
+        )
+    except rds.exceptions.DBParameterGroupAlreadyExistsFault:
+        print(f"[{engine}] Parameter group déjà existant, réutilisé : {name}")
+        return name
 
     # Exemple de paramètres standardisés (adaptez selon le moteur)
     if engine == "postgres":
@@ -447,25 +465,28 @@ def create_rds_instance(engine: str, sg_id: str, subnet_group: str, parameter_gr
     cfg = ENGINE_CONFIG[engine]
     identifier = resource_name(engine, "lab")
 
-    rds.create_db_instance(
-        DBInstanceIdentifier=identifier,
-        Engine=cfg["engine"],
-        EngineVersion=cfg["engine_version"],
-        DBInstanceClass="db.t3.micro",
-        AllocatedStorage=20,
-        MasterUsername=master_username,
-        MasterUserPassword="ChangeMe123!",  # en réel : Secrets Manager, jamais en dur
-        VpcSecurityGroupIds=[sg_id],
-        DBSubnetGroupName=subnet_group,
-        DBParameterGroupName=parameter_group,
-        Port=cfg["port"],
-        PubliclyAccessible=PUBLICLY_ACCESSIBLE,
-        StorageEncrypted=True,
-        BackupRetentionPeriod=7,
-        Tags=standard_tags(engine),
-    )
+    try:
+        rds.create_db_instance(
+            DBInstanceIdentifier=identifier,
+            Engine=cfg["engine"],
+            EngineVersion=cfg["engine_version"],
+            DBInstanceClass="db.t3.micro",
+            AllocatedStorage=20,
+            MasterUsername=master_username,
+            MasterUserPassword="ChangeMe123!",  # en réel : Secrets Manager, jamais en dur
+            VpcSecurityGroupIds=[sg_id],
+            DBSubnetGroupName=subnet_group,
+            DBParameterGroupName=parameter_group,
+            Port=cfg["port"],
+            PubliclyAccessible=PUBLICLY_ACCESSIBLE,
+            StorageEncrypted=True,
+            BackupRetentionPeriod=7,
+            Tags=standard_tags(engine),
+        )
+        print(f"[{engine}] Création de l'instance {identifier} lancée (provisioning ~5-10 min)...")
+    except rds.exceptions.DBInstanceAlreadyExistsFault:
+        print(f"[{engine}] Instance déjà existante, réutilisée : {identifier}")
 
-    print(f"[{engine}] Création de l'instance {identifier} lancée (provisioning ~5-10 min)...")
     return identifier
 EOF
 ```
@@ -625,7 +646,7 @@ En 15 minutes, on ne code pas une CLI complète, mais on identifie ensemble comm
 
 - **Configuration externalisée** : sortir `ENGINE_CONFIG`, `VPC_ID`, `PRIVATE_SUBNET_IDS`, `ALLOWED_CIDR`, `USER_ID` dans un fichier YAML/JSON par environnement (dev/prod) ou par participant, au lieu de constantes en dur.
 - **CLI avec `argparse`** : exposer `--engine`, `--action {create,check,resize,delete}` pour piloter le script sans toucher au code.
-- **Idempotence** : avant `create_*`, vérifier via `describe_*` (avec gestion de l'exception `DBInstanceNotFoundFault`) si la ressource existe déjà, pour pouvoir relancer le script sans erreur.
+- **Idempotence** : déjà géré dans les fonctions `create_*` (sections 2 à 5) en attrapant l'exception « déjà existant » de chaque service pour réutiliser la ressource au lieu de planter. Pour aller plus loin : vérifier aussi que la configuration de la ressource existante correspond bien au standard attendu (et la corriger sinon), plutôt que de simplement la réutiliser telle quelle.
 - **Secrets** : remplacer le mot de passe en dur par une génération + stockage dans AWS Secrets Manager.
 - **Traçabilité** : journaliser chaque appel (script, paramètres, résultat) dans un fichier de log ou CloudTrail, pour l'audit de gouvernance.
 
