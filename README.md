@@ -433,10 +433,12 @@ def create_parameter_group(engine: str) -> str:
             Tags=standard_tags(engine),
         )
 
-    # Exemple de paramètres standardisés (adaptez selon le moteur)
+    # Exemple de paramètres standardisés (adaptez selon le moteur). On évite ici les
+    # paramètres dont le type/les valeurs changent entre versions majeures (ex.
+    # log_connections, devenu une liste de phases en PostgreSQL 18 au lieu d'un
+    # booléen) — un risque réel avec une version par défaut qui évolue dans le temps.
     if engine == "postgres":
         parameters = [
-            {"ParameterName": "log_connections", "ParameterValue": "1", "ApplyMethod": "pending-reboot"},
             {"ParameterName": "rds.force_ssl", "ParameterValue": "1", "ApplyMethod": "pending-reboot"},
         ]
     else:  # mariadb
