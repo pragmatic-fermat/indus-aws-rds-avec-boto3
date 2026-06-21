@@ -295,7 +295,7 @@ cat >> rds_provisioning.py << 'EOF'
 
 def create_db_security_group(engine: str) -> str:
     cfg = ENGINE_CONFIG[engine]
-    name = resource_name(engine, "sg")
+    name = resource_name(engine, "sg")  # ex. mariadb-sg-user0 / postgres-sg-user0
 
     try:
         response = ec2.create_security_group(
@@ -347,7 +347,7 @@ EOF
 python3 -c "import rds_provisioning as p; print(p.create_db_security_group('mariadb')); print(p.create_db_security_group('postgres'))"
 ```
 
-Notez les deux `sg_id` affichés (`sg-...`), vérifiez dans la console EC2 → Security Groups que les règles d'entrée sont correctes.
+Notez les deux `sg_id` affichés (`sg-...`) — c'est l'identifiant AWS, généré automatiquement, distinct du **nom** du security group (`GroupName=name`) que vous retrouverez dans la console : `mariadb-sg-user<USER_ID>` / `postgres-sg-user<USER_ID>`, construit par `resource_name(engine, "sg")`. Vérifiez dans la console EC2 → Security Groups que les règles d'entrée sont correctes.
 
 ---
 
@@ -360,7 +360,7 @@ cat >> rds_provisioning.py << 'EOF'
 
 
 def create_subnet_group(engine: str) -> str:
-    name = resource_name(engine, "subnet-group")
+    name = resource_name(engine, "subnet-group")  # ex. mariadb-subnet-group-user0 / postgres-subnet-group-user0
 
     try:
         rds.create_db_subnet_group(
@@ -392,7 +392,7 @@ for engine in ('mariadb', 'postgres'):
 "
 ```
 
-**Résultat attendu** : pour chaque moteur, un dict avec `DBSubnetGroupName`, `VpcId`, `SubnetGroupStatus` (`Complete`), et la liste `Subnets` détaillant chaque sous-réseau (`SubnetIdentifier`, AZ, statut) — on formalisera cette vérification en section 6.
+**Résultat attendu** : pour chaque moteur, un dict avec `DBSubnetGroupName` (`mariadb-subnet-group-user<USER_ID>` ou `postgres-subnet-group-user<USER_ID>`, construit par `resource_name(engine, "subnet-group")`), `VpcId`, `SubnetGroupStatus` (`Complete`), et la liste `Subnets` détaillant chaque sous-réseau (`SubnetIdentifier`, AZ, statut) — on formalisera cette vérification en section 6.
 
 ---
 
@@ -406,7 +406,7 @@ cat >> rds_provisioning.py << 'EOF'
 
 def create_parameter_group(engine: str) -> str:
     cfg = ENGINE_CONFIG[engine]
-    name = resource_name(engine, "params")
+    name = resource_name(engine, "params")  # ex. mariadb-params-user0 / postgres-params-user0
 
     try:
         rds.create_db_parameter_group(
@@ -466,11 +466,13 @@ EOF
 python3 -c "import rds_provisioning as p; print(p.create_parameter_group('mariadb')); print(p.create_parameter_group('postgres'))"
 ```
 
+**Résultat attendu** : `mariadb-params-user<USER_ID>` puis `postgres-params-user<USER_ID>` — même convention que les sections précédentes, via `resource_name(engine, "params")`.
+
 ---
 
 ## 5 — Création de l'instance RDS
 
-On assemble les briques précédentes (Security Group, Subnet Group, Parameter Group) pour créer l'instance.
+On assemble les briques précédentes (Security Group, Subnet Group, Parameter Group) pour créer l'instance. C'est ici qu'apparaît le nom qu'on retrouvera ensuite dans toutes les sections suivantes : `identifier = resource_name(engine, "lab")`, soit **`mariadb-lab-user<USER_ID>`** et **`postgres-lab-user<USER_ID>`** — le suffixe `"lab"` est le même partout (sections 5 à 8), c'est ce qui permet à `wait_for_instance_available`, `check_resources`, `resize_instance` et `delete_instance` de retrouver l'instance sans qu'on retape son nom complet à chaque fois.
 
 ```bash
 cat >> rds_provisioning.py << 'EOF'
@@ -479,7 +481,7 @@ cat >> rds_provisioning.py << 'EOF'
 def create_rds_instance(engine: str, sg_id: str, subnet_group: str, parameter_group: str,
                          master_username: str = "admin_lab") -> str:
     cfg = ENGINE_CONFIG[engine]
-    identifier = resource_name(engine, "lab")
+    identifier = resource_name(engine, "lab")  # ex. mariadb-lab-user0 / postgres-lab-user0
 
     try:
         rds.create_db_instance(
@@ -517,7 +519,7 @@ python3 -c "import rds_provisioning as p; p.create_rds_instance('mariadb', '<sg-
 python3 -c "import rds_provisioning as p; p.create_rds_instance('postgres', '<sg-id-postgres>', p.resource_name('postgres', 'subnet-group'), p.resource_name('postgres', 'params'))"
 ```
 
-Remplacez `<sg-id-mariadb>` / `<sg-id-postgres>` par les identifiants notés en section 2.
+Remplacez `<sg-id-mariadb>` / `<sg-id-postgres>` par les identifiants notés en section 2. Les deux derniers arguments, `p.resource_name('mariadb', 'subnet-group')` et `p.resource_name('mariadb', 'params')`, résolvent respectivement vers `mariadb-subnet-group-user<USER_ID>` et `mariadb-params-user<USER_ID>` — les noms créés aux sections 3 et 4, qu'on retrouve ici sans les retaper en dur.
 
 **Points clés à discuter :**
 - le choix MariaDB vs PostgreSQL se fait uniquement via l'argument `engine` passé à `create_rds_instance('mariadb', ...)` ou `create_rds_instance('postgres', ...)` — cet argument sert de clé dans `ENGINE_CONFIG` (section 1) pour récupérer la version, le port, la famille de paramètres, et c'est `cfg["engine"]` qui est transmis à AWS via `Engine=cfg["engine"]` ;
@@ -551,9 +553,9 @@ def wait_for_instance_available(identifier: str, timeout_s: int = 900, poll_s: i
 
 
 def check_resources(engine: str) -> None:
-    instances = rds.describe_db_instances(DBInstanceIdentifier=resource_name(engine, "lab"))
-    subnet_groups = rds.describe_db_subnet_groups(DBSubnetGroupName=resource_name(engine, "subnet-group"))
-    parameter_groups = rds.describe_db_parameter_groups(DBParameterGroupName=resource_name(engine, "params"))
+    instances = rds.describe_db_instances(DBInstanceIdentifier=resource_name(engine, "lab"))  # ex. mariadb-lab-user0
+    subnet_groups = rds.describe_db_subnet_groups(DBSubnetGroupName=resource_name(engine, "subnet-group"))  # ex. mariadb-subnet-group-user0
+    parameter_groups = rds.describe_db_parameter_groups(DBParameterGroupName=resource_name(engine, "params"))  # ex. mariadb-params-user0
 
     print(f"[{engine}] Instance status   : {instances['DBInstances'][0]['DBInstanceStatus']}")
     print(f"[{engine}] Subnet group      : {subnet_groups['DBSubnetGroups'][0]['DBSubnetGroupName']}")
@@ -561,7 +563,7 @@ def check_resources(engine: str) -> None:
 EOF
 ```
 
-**À tester** :
+**À tester** — `wait_for_instance_available` attend `mariadb-lab-user<USER_ID>` (créée en section 5), `check_resources` interroge les trois ressources de ce moteur (`mariadb-lab-user<USER_ID>`, `mariadb-subnet-group-user<USER_ID>`, `mariadb-params-user<USER_ID>`) :
 
 ```bash
 python3 -c "import rds_provisioning as p; p.wait_for_instance_available(p.resource_name('mariadb', 'lab'))"
@@ -631,7 +633,7 @@ def delete_instance(identifier: str, take_final_snapshot: bool = True) -> None:
 EOF
 ```
 
-**À tester** :
+**À tester** — `p.resource_name('mariadb', 'lab')` résout vers `mariadb-lab-user<USER_ID>`, l'instance créée en section 5 ; contrairement aux fonctions précédentes, `delete_instance` ne reconstruit pas elle-même le nom (elle reçoit `identifier` déjà calculé), pour pouvoir aussi l'utiliser plus tard sur un identifiant obtenu autrement (ex. listé via `describe_db_instances`) :
 
 ```bash
 python3 -c "import rds_provisioning as p; p.delete_instance(p.resource_name('mariadb', 'lab'), take_final_snapshot=False)"
@@ -671,9 +673,9 @@ def main() -> None:
     elif args.action == "check":
         check_resources(args.engine)
     elif args.action == "resize":
-        resize_instance(resource_name(args.engine, "lab"))
+        resize_instance(resource_name(args.engine, "lab"))  # ex. mariadb-lab-user0
     elif args.action == "delete":
-        delete_instance(resource_name(args.engine, "lab"))
+        delete_instance(resource_name(args.engine, "lab"))  # ex. mariadb-lab-user0
 
 
 if __name__ == "__main__":
@@ -692,7 +694,7 @@ python3 rds_provisioning.py --engine mariadb --action delete
 python3 rds_provisioning.py --engine postgres --action delete
 ```
 
-Puis, une fois les instances supprimées (vérifiez via `check_resources` ou la console), supprimez les ressources annexes :
+Puis, une fois les instances supprimées (vérifiez via `check_resources` ou la console), supprimez les ressources annexes — chaque appel `p.resource_name(engine, suffix)` reconstruit le même nom que celui utilisé à la création (`mariadb-subnet-group-user<USER_ID>`, `postgres-params-user<USER_ID>`, etc.) ; seuls les security groups n'ont pas de fonction dédiée pour les retrouver par nom, d'où l'usage direct du `sg_id` noté en section 2 :
 
 ```bash
 python3 -c "
