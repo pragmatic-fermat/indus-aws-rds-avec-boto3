@@ -283,7 +283,7 @@ Si vous obtenez plutôt une erreur `SystemExit: Configuration invalide : '...' e
 Puis confirmez que les credentials et la région sont valides avec un appel API inoffensif :
 
 ```bash
-python3 -c "import rds_provisioning as p; print(p.rds.describe_db_instances()['DBInstances'])"
+python3 -c "import json, rds_provisioning as p; print(json.dumps(p.rds.describe_db_instances()['DBInstances'], indent=2, default=str))"
 ```
 
 **Résultat attendu** : une liste vide `[]` (aucune instance créée pour l'instant), sans erreur.
@@ -388,10 +388,12 @@ EOF
 
 ```bash
 python3 -c "
+import json
 import rds_provisioning as p
 for engine in ('mariadb', 'postgres'):
     name = p.create_subnet_group(engine)
-    print(p.rds.describe_db_subnet_groups(DBSubnetGroupName=name)['DBSubnetGroups'][0])
+    group = p.rds.describe_db_subnet_groups(DBSubnetGroupName=name)['DBSubnetGroups'][0]
+    print(json.dumps(group, indent=2, default=str))
 "
 ```
 
