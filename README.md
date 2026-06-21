@@ -370,13 +370,18 @@ EOF
 
 > `create_db_subnet_group` exige des sous-réseaux dans **au moins deux AZ différentes** — c'est ce qui garantit le déploiement multi-AZ pour la haute disponibilité future, que ce soit côté privé ou public.
 
-**À tester** :
+**À tester** (création puis affichage du contenu de chaque DB Subnet Group créé) :
 
 ```bash
-python3 -c "import rds_provisioning as p; print(p.create_subnet_group('mariadb')); print(p.create_subnet_group('postgres'))"
+python3 -c "
+import rds_provisioning as p
+for engine in ('mariadb', 'postgres'):
+    name = p.create_subnet_group(engine)
+    print(p.rds.describe_db_subnet_groups(DBSubnetGroupName=name)['DBSubnetGroups'][0])
+"
 ```
 
-Vérifiez avec `python3 -c "import rds_provisioning as p; print(p.rds.describe_db_subnet_groups())"` que les groupes existent (on formalisera cette vérification en section 7).
+**Résultat attendu** : pour chaque moteur, un dict avec `DBSubnetGroupName`, `VpcId`, `SubnetGroupStatus` (`Complete`), et la liste `Subnets` détaillant chaque sous-réseau (`SubnetIdentifier`, AZ, statut) — on formalisera cette vérification en section 7.
 
 ---
 
