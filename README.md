@@ -159,16 +159,26 @@ Le fichier `rds_provisioning.py` sera créé puis complété au fil des sections
 
 On démarre le script par les imports, le client boto3, et le **standard commun** (naming, tags, configuration par moteur) qui sera réutilisé dans toutes les fonctions suivantes. Le VPC étant partagé par tout le groupe, on introduit ici `USER_ID` : **chacun remplace cette valeur par son propre numéro de participant** avant de continuer — c'est ce qui garantit que vos ressources n'entrent jamais en collision avec celles des autres.
 
+Renseignez d'abord, dans votre terminal, les identifiants réseau reçus via le lien secret éphémère :
+
 ```bash
-cat > rds_provisioning.py << 'EOF'
+VPC_ID="vpc-XXXXXXXX"               # VPC fourni pour le lab
+PRIVATE_SUBNET_1="subnet-AAAAAAAA"  # sous-réseau privé n°1 (AZ 1)
+PRIVATE_SUBNET_2="subnet-BBBBBBBB"  # sous-réseau privé n°2 (AZ 2)
+```
+
+Puis générez le fichier — les variables shell ci-dessus sont interpolées directement dans le code écrit (notez le `EOF` non quoté, qui autorise cette substitution) :
+
+```bash
+cat > rds_provisioning.py << EOF
 import argparse
 import time
 
 import boto3
 
 REGION = "eu-west-1"  # adaptez à la région de votre sandbox
-VPC_ID = "vpc-XXXXXXXX"  # VPC unique, partagé par tout le groupe
-PRIVATE_SUBNET_IDS = ["subnet-AAAAAAAA", "subnet-BBBBBBBB"]  # 2 AZ minimum
+VPC_ID = "$VPC_ID"  # VPC unique, partagé par tout le groupe
+PRIVATE_SUBNET_IDS = ["$PRIVATE_SUBNET_1", "$PRIVATE_SUBNET_2"]  # 2 AZ minimum
 ALLOWED_CIDR = "10.0.0.0/8"  # réseau autorisé à se connecter aux bases
 USER_ID = "1"  # VOTRE numéro de participant (1, 2, 3...) ; 0 = animateur
 
@@ -215,6 +225,14 @@ python3 -c "import rds_provisioning as p; print(p.resource_name('mariadb', 'sg')
 ```
 
 **Résultat attendu** : `mariadb-sg-user1` (remplacez `1` par votre propre numéro — si ce n'est pas le bon, corrigez `USER_ID` dans le fichier avant de continuer).
+
+Vérifiez aussi que `VPC_ID` et `PRIVATE_SUBNET_IDS` ont bien été interpolés avec vos vraies valeurs (et non `vpc-XXXXXXXX`) :
+
+```bash
+python3 -c "import rds_provisioning as p; print(p.VPC_ID); print(p.PRIVATE_SUBNET_IDS)"
+```
+
+Si vous voyez encore `vpc-XXXXXXXX`, c'est que les variables `VPC_ID` / `PRIVATE_SUBNET_1` / `PRIVATE_SUBNET_2` n'étaient pas définies dans le terminal **avant** d'exécuter la commande `cat` — redéfinissez-les puis relancez la commande `cat`.
 
 Puis confirmez que les credentials et la région sont valides avec un appel API inoffensif :
 
