@@ -719,6 +719,19 @@ p.ec2.delete_security_group(GroupId='<sg-id-postgres>')
 "
 ```
 
+## Outil : génération directe du script (hors parcours pédagogique)
+
+Le dépôt fournit `generate_rds_provisioning.py`, qui exécute dans l'ordre les commandes `cat` des sections 1 à 5 pour produire directement `rds_provisioning.py` dans son état final, sans repasser section par section. Utile pour valider rapidement le support ou rejouer un test, **mais ce n'est pas le chemin recommandé pour suivre le lab** — le déroulé pas à pas reste la meilleure façon d'apprendre le contenu de chaque section.
+
+```bash
+VPC_ID="vpc-XXXXXXXX" \
+PRIVATE_SUBNET_1="subnet-AAAAAAAA" PRIVATE_SUBNET_2="subnet-BBBBBBBB" \
+USER_ID="1" ALLOWED_CIDR="10.10.0.0/16" \
+python3 generate_rds_provisioning.py
+```
+
+Ajoutez `PUBLIC_SUBNET_1`/`PUBLIC_SUBNET_2` si `ALLOWED_CIDR` est une IP publique, et `--steps N` (1 à 5) pour générer un état intermédiaire (ex. `--steps 3` arrête après le DB Subnet Group).
+
 ## Pour aller plus loin (hors lab)
 
 - Migration des données elles-mêmes via **AWS DMS** (Database Migration Service), une fois l'instance RDS cible provisionnée par ce script.
