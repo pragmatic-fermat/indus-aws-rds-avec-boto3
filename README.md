@@ -206,6 +206,21 @@ USER_ID = "$USER_ID"  # VOTRE numéro de participant (1, 2, 3...) ; 0 = animateu
 PUBLICLY_ACCESSIBLE = not ipaddress.ip_network(ALLOWED_CIDR, strict=False).is_private
 SUBNET_IDS = PUBLIC_SUBNET_IDS if PUBLICLY_ACCESSIBLE else PRIVATE_SUBNET_IDS
 
+
+def _require_non_empty(name: str, value: str) -> None:
+    if not value or not value.strip():
+        raise SystemExit(f"Configuration invalide : '{name}' est vide ou non défini (avez-vous bien exporté la variable shell avant le 'cat' ?).")
+
+
+_require_non_empty("VPC_ID", VPC_ID)
+_require_non_empty("USER_ID", USER_ID)
+_require_non_empty("ALLOWED_CIDR", ALLOWED_CIDR)
+for _i, _subnet in enumerate(PRIVATE_SUBNET_IDS, start=1):
+    _require_non_empty(f"PRIVATE_SUBNET_{_i}", _subnet)
+if PUBLICLY_ACCESSIBLE:
+    for _i, _subnet in enumerate(PUBLIC_SUBNET_IDS, start=1):
+        _require_non_empty(f"PUBLIC_SUBNET_{_i}", _subnet)
+
 ENGINE_CONFIG = {
     "mariadb": {
         "engine": "mariadb",
@@ -242,6 +257,8 @@ def resource_name(engine: str, suffix: str) -> str:
 EOF
 ```
 
+`_require_non_empty()` valide, dès l'import du module, que les variables effectivement utilisées ne sont pas vides — en particulier `PUBLIC_SUBNET_IDS`, qui n'est exigé que si `PUBLICLY_ACCESSIBLE` est `True` (sinon, si vous restez en privé, vous n'avez pas besoin de renseigner `PUBLIC_SUBNET_1`/`PUBLIC_SUBNET_2`). En cas de variable requise et vide, l'import plante immédiatement avec un message clair plutôt que de continuer avec une configuration invalide.
+
 **Point de vérification** : confirmez que `USER_ID` est bien le vôtre et que la convention de nommage l'inclut :
 
 ```bash
@@ -259,6 +276,8 @@ python3 -c "import rds_provisioning as p; print(p.VPC_ID); print(p.SUBNET_IDS); 
 **Résultat attendu pour `PUBLICLY_ACCESSIBLE`** : `False` si vous avez choisi l'option 1 (CIDR du VPC) ; `True` si vous avez choisi l'option 2 (votre IP publique).
 
 Si `USER_ID`, `VPC_ID`, `PRIVATE_SUBNET_IDS` ou `ALLOWED_CIDR` affichent encore les valeurs par défaut (`1`, `vpc-XXXXXXXX`...), c'est que les variables shell `VPC_ID` / `PRIVATE_SUBNET_1` / `PRIVATE_SUBNET_2` / `USER_ID` / `ALLOWED_CIDR` n'étaient pas définies dans le terminal **avant** d'exécuter la commande `cat` — redéfinissez-les puis relancez la commande `cat` (un simple `export VAR=valeur` après coup ne suffit pas : il faut régénérer le fichier).
+
+Si vous obtenez plutôt une erreur `SystemExit: Configuration invalide : '...' est vide ou non défini`, c'est que l'une des variables shell n'était même pas exportée du tout au moment du `cat` (par exemple `PUBLIC_SUBNET_1`/`PUBLIC_SUBNET_2` alors que vous avez choisi l'option IP publique) — exportez-la puis régénérez le fichier.
 
 Puis confirmez que les credentials et la région sont valides avec un appel API inoffensif :
 
