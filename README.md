@@ -288,7 +288,7 @@ EOF
 ```
 
 **Points clés à discuter en groupe :**
-- on n'ouvre **que** le port du moteur (3306 ou 5432), jamais `0.0.0.0/0` ;
+- deux restrictions distinctes et cumulatives sur la règle d'entrée : le **port de destination** est limité à celui du moteur (3306 ou 5432, jamais une plage large) ; la **source autorisée** (`CidrIp`) est `ALLOWED_CIDR`, jamais `0.0.0.0/0` (qui autoriserait n'importe quelle IP sur Internet) ;
 - les tags sont posés **à la création** de la ressource (`TagSpecifications`) — ce n'est pas la seule façon de tagger, on verra `add_tags_to_resource` en section 6 pour les ressources RDS qui ne supportent pas toujours le tagging à la création.
 
 **À tester** :
