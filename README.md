@@ -39,7 +39,7 @@ pip install boto3
 
 - Une clé d'accès AWS (Access Key ID + Secret Access Key) transmise en début de session via un lien secret éphémère — voir [Configuration des clés d'accès](#configuration-des-clés-daccès-boto3-uniquement).
 - Un accès à un compte AWS sandbox **commun à tous les participants**, avec :
-  - un **VPC unique, partagé** par l'ensemble du groupe (mêmes `VPC_ID` et sous-réseaux privés pour tout le monde, au moins 2 AZ différentes, en **eu-west-1**) — l'identifiant réel du VPC et des sous-réseaux vous sera communiqué via le même lien secret éphémère que les clés d'accès, à reporter dans les constantes `VPC_ID` / `PRIVATE_SUBNET_IDS` du script (ce ne sont pas des secrets à proprement parler, mais des identifiants d'infrastructure propres à la session, qui n'ont pas vocation à être publiés dans ce support) ;
+  - un **VPC unique, partagé** par l'ensemble du groupe (mêmes `VPC_ID` et sous-réseaux pour tout le monde, en **eu-west-1**), avec au moins 2 sous-réseaux **privés** dans des AZ différentes, et, si vous comptez tester l'option « IP publique » d'`ALLOWED_CIDR` (section 1), au moins 2 sous-réseaux **publics** (avec route vers une Internet Gateway) dans des AZ différentes — l'identifiant réel du VPC et des sous-réseaux vous sera communiqué via le même lien secret éphémère que les clés d'accès, à reporter dans les constantes `VPC_ID` / `PRIVATE_SUBNET_IDS` / `PUBLIC_SUBNET_IDS` du script (ce ne sont pas des secrets à proprement parler, mais des identifiants d'infrastructure propres à la session, qui n'ont pas vocation à être publiés dans ce support) ;
   - des droits IAM sur `rds:*`, `ec2:*SecurityGroup*`, `ec2:Describe*` ;
 - Votre **numéro de participant** (1, 2, 3...), communiqué par l'animateur en même temps que les clés d'accès — `0` est réservé à l'animateur.
 
@@ -165,6 +165,8 @@ Renseignez d'abord, dans votre terminal, les identifiants réseau reçus via le 
 VPC_ID="vpc-XXXXXXXX"               # VPC fourni pour le lab
 PRIVATE_SUBNET_1="subnet-AAAAAAAA"  # sous-réseau privé n°1 (AZ 1)
 PRIVATE_SUBNET_2="subnet-BBBBBBBB"  # sous-réseau privé n°2 (AZ 2)
+PUBLIC_SUBNET_1="subnet-CCCCCCCC"   # sous-réseau public n°1 (AZ 1) — utilisé seulement si vous choisissez l'option IP publique ci-dessous
+PUBLIC_SUBNET_2="subnet-DDDDDDDD"   # sous-réseau public n°2 (AZ 2)
 USER_ID="1"                         # VOTRE numéro de participant (1, 2, 3...) ; 0 = animateur
 ```
 
@@ -194,12 +196,15 @@ import boto3
 REGION = "eu-west-1"  # adaptez à la région de votre sandbox
 VPC_ID = "$VPC_ID"  # VPC unique, partagé par tout le groupe
 PRIVATE_SUBNET_IDS = ["$PRIVATE_SUBNET_1", "$PRIVATE_SUBNET_2"]  # 2 AZ minimum
+PUBLIC_SUBNET_IDS = ["$PUBLIC_SUBNET_1", "$PUBLIC_SUBNET_2"]  # 2 AZ minimum, avec route vers une Internet Gateway
 ALLOWED_CIDR = "$ALLOWED_CIDR"  # réseau autorisé à se connecter aux bases
 USER_ID = "$USER_ID"  # VOTRE numéro de participant (1, 2, 3...) ; 0 = animateur
 
 # Si ALLOWED_CIDR est une plage privée (RFC1918, ex. le CIDR du VPC), la base reste privée.
-# Si c'est une IP/plage routable sur Internet (ex. votre IP publique), la base est rendue publique.
+# Si c'est une IP/plage routable sur Internet (ex. votre IP publique), la base est rendue publique
+# ET déployée dans les sous-réseaux publics, pour être réellement joignable.
 PUBLICLY_ACCESSIBLE = not ipaddress.ip_network(ALLOWED_CIDR, strict=False).is_private
+SUBNET_IDS = PUBLIC_SUBNET_IDS if PUBLICLY_ACCESSIBLE else PRIVATE_SUBNET_IDS
 
 ENGINE_CONFIG = {
     "mariadb": {
@@ -248,7 +253,7 @@ python3 -c "import rds_provisioning as p; print(p.resource_name('mariadb', 'sg')
 Vérifiez aussi que `VPC_ID`, `PRIVATE_SUBNET_IDS` et `ALLOWED_CIDR` ont bien été interpolés avec vos vraies valeurs (et non `vpc-XXXXXXXX`) :
 
 ```bash
-python3 -c "import rds_provisioning as p; print(p.VPC_ID); print(p.PRIVATE_SUBNET_IDS); print(p.ALLOWED_CIDR); print(p.PUBLICLY_ACCESSIBLE)"
+python3 -c "import rds_provisioning as p; print(p.VPC_ID); print(p.SUBNET_IDS); print(p.ALLOWED_CIDR); print(p.PUBLICLY_ACCESSIBLE)"
 ```
 
 **Résultat attendu pour `PUBLICLY_ACCESSIBLE`** : `False` si vous avez choisi l'option 1 (CIDR du VPC) ; `True` si vous avez choisi l'option 2 (votre IP publique).
@@ -323,7 +328,7 @@ Notez les deux `sg_id` affichés (`sg-...`), vérifiez dans la console EC2 → S
 
 ## 3 — DB Subnet Group
 
-RDS a besoin d'un **DB Subnet Group** pour savoir dans quels sous-réseaux privés déployer l'instance.
+RDS a besoin d'un **DB Subnet Group** pour savoir dans quels sous-réseaux déployer l'instance — les sous-réseaux **privés** par défaut, ou les sous-réseaux **publics** si `PUBLICLY_ACCESSIBLE` est `True` (sinon l'instance ne serait pas réellement joignable depuis Internet, faute de route vers une Internet Gateway). C'est ce que fait `SUBNET_IDS`, calculé en section 1.
 
 ```bash
 cat >> rds_provisioning.py << 'EOF'
@@ -334,8 +339,8 @@ def create_subnet_group(engine: str) -> str:
 
     rds.create_db_subnet_group(
         DBSubnetGroupName=name,
-        DBSubnetGroupDescription=f"Private subnets for {engine} RDS instances",
-        SubnetIds=PRIVATE_SUBNET_IDS,
+        DBSubnetGroupDescription=f"Subnets for {engine} RDS instances",
+        SubnetIds=SUBNET_IDS,
         Tags=standard_tags(engine),
     )
 
@@ -344,7 +349,7 @@ def create_subnet_group(engine: str) -> str:
 EOF
 ```
 
-> `create_db_subnet_group` exige des sous-réseaux dans **au moins deux AZ différentes** — c'est ce qui garantit le déploiement en sous-réseau privé multi-AZ pour la haute disponibilité future.
+> `create_db_subnet_group` exige des sous-réseaux dans **au moins deux AZ différentes** — c'est ce qui garantit le déploiement multi-AZ pour la haute disponibilité future, que ce soit côté privé ou public.
 
 **À tester** :
 
@@ -451,8 +456,7 @@ python3 -c "import rds_provisioning as p; p.create_rds_instance('postgres', '<sg
 Remplacez `<sg-id-mariadb>` / `<sg-id-postgres>` par les identifiants notés en section 2.
 
 **Points clés à discuter :**
-- `PubliclyAccessible=PUBLICLY_ACCESSIBLE` → calculé en section 1 à partir d'`ALLOWED_CIDR` : si vous avez autorisé une plage privée (CIDR du VPC), la base reste privée (conforme au standard) ; si vous avez autorisé votre IP publique, la base est rendue accessible depuis Internet pour ce test — un choix qui n'a de sens que dans ce lab, jamais en production sans validation explicite ;
-- même avec `PubliclyAccessible=True`, l'instance reste déployée dans les sous-réseaux privés du standard ; pour qu'elle soit réellement joignable depuis Internet, ces sous-réseaux devraient avoir une route vers une Internet Gateway — ce que les sous-réseaux privés du lab n'ont pas. Ce point est volontairement laissé en discussion plutôt que codé, par manque de temps ;
+- `PubliclyAccessible=PUBLICLY_ACCESSIBLE` → calculé en section 1 à partir d'`ALLOWED_CIDR` : si vous avez autorisé une plage privée (CIDR du VPC), la base reste privée et déployée dans les sous-réseaux privés (conforme au standard) ; si vous avez autorisé votre IP publique, la base est à la fois rendue accessible (`PubliclyAccessible=True`) **et** déployée dans les sous-réseaux publics (`SUBNET_IDS` en section 1) pour être réellement joignable depuis Internet — un choix qui n'a de sens que dans ce lab, jamais en production sans validation explicite ;
 - `StorageEncrypted=True` → chiffrement activé par défaut, non négociable dans le standard ;
 - le mot de passe est en dur **uniquement pour le lab** — en production, on le génère et on le stocke dans AWS Secrets Manager (`create_random_password` + `secretsmanager.create_secret`), à mentionner mais pas à coder ici par manque de temps.
 
