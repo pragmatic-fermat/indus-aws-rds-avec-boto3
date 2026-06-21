@@ -507,6 +507,7 @@ python3 -c "import rds_provisioning as p; p.create_rds_instance('postgres', '<sg
 Remplacez `<sg-id-mariadb>` / `<sg-id-postgres>` par les identifiants notés en section 2.
 
 **Points clés à discuter :**
+- le choix MariaDB vs PostgreSQL se fait uniquement via l'argument `engine` passé à `create_rds_instance('mariadb', ...)` ou `create_rds_instance('postgres', ...)` — cet argument sert de clé dans `ENGINE_CONFIG` (section 1) pour récupérer la version, le port, la famille de paramètres, et c'est `cfg["engine"]` qui est transmis à AWS via `Engine=cfg["engine"]` ;
 - `PubliclyAccessible=PUBLICLY_ACCESSIBLE` → calculé en section 1 à partir d'`ALLOWED_CIDR` : si vous avez autorisé une plage privée (CIDR du VPC), la base reste privée et déployée dans les sous-réseaux privés (conforme au standard) ; si vous avez autorisé votre IP publique, la base est à la fois rendue accessible (`PubliclyAccessible=True`) **et** déployée dans les sous-réseaux publics (`SUBNET_IDS` en section 1) pour être réellement joignable depuis Internet — un choix qui n'a de sens que dans ce lab, jamais en production sans validation explicite ;
 - `StorageEncrypted=True` → chiffrement activé par défaut, non négociable dans le standard ;
 - le mot de passe est en dur **uniquement pour le lab** — en production, on le génère et on le stocke dans AWS Secrets Manager (`create_random_password` + `secretsmanager.create_secret`), à mentionner mais pas à coder ici par manque de temps.
