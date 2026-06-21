@@ -38,9 +38,12 @@ pip install boto3
 ```
 
 - Une clé d'accès AWS (Access Key ID + Secret Access Key) transmise en début de session via un lien secret éphémère — voir [Configuration des clés d'accès](#configuration-des-clés-daccès-boto3-uniquement).
-- Un accès à un compte AWS sandbox, avec :
-  - un VPC existant comportant au moins 2 sous-réseaux privés dans des AZ différentes, en **eu-west-1** ;
+- Un accès à un compte AWS sandbox **commun à tous les participants**, avec :
+  - un **VPC unique, partagé** par l'ensemble du groupe (mêmes `VPC_ID` et sous-réseaux privés pour tout le monde, au moins 2 AZ différentes, en **eu-west-1**) ;
   - des droits IAM sur `rds:*`, `ec2:*SecurityGroup*`, `ec2:Describe*` ;
+- Votre **numéro de participant** (1, 2, 3...), communiqué par l'animateur en même temps que les clés d'accès — `0` est réservé à l'animateur.
+
+> **VPC partagé** : comme tout le groupe travaille dans le même VPC, chaque participant doit suffixer ses ressources par son numéro (`-userX`) pour éviter toute collision de nom avec les autres. C'est géré automatiquement par le script via la constante `USER_ID` (section 1) — vérifiez juste que vous avez bien renseigné votre numéro avant de créer quoi que ce soit.
 
 > **Coût et durée** : la création d'une instance RDS prend réellement 5 à 10 minutes. Pensez à lancer la création tôt dans une section et à enchaîner sur la suite pendant le provisioning. **Toutes les ressources créées pendant la session sont détruites à la fin** (section [Nettoyage](#10--nettoyage-fin-de-lab)) — ne laissez rien tourner après le lab.
 
@@ -154,7 +157,7 @@ Le fichier `rds_provisioning.py` sera créé puis complété au fil des sections
 
 ## 1 — Mise en place & standard de configuration
 
-On démarre le script par les imports, le client boto3, et le **standard commun** (naming, tags, configuration par moteur) qui sera réutilisé dans toutes les fonctions suivantes.
+On démarre le script par les imports, le client boto3, et le **standard commun** (naming, tags, configuration par moteur) qui sera réutilisé dans toutes les fonctions suivantes. Le VPC étant partagé par tout le groupe, on introduit ici `USER_ID` : **chacun remplace cette valeur par son propre numéro de participant** avant de continuer — c'est ce qui garantit que vos ressources n'entrent jamais en collision avec celles des autres.
 
 ```bash
 cat > rds_provisioning.py << 'EOF'
@@ -164,9 +167,10 @@ import time
 import boto3
 
 REGION = "eu-west-1"  # adaptez à la région de votre sandbox
-VPC_ID = "vpc-XXXXXXXX"  # à remplacer par le VPC fourni
+VPC_ID = "vpc-XXXXXXXX"  # VPC unique, partagé par tout le groupe
 PRIVATE_SUBNET_IDS = ["subnet-AAAAAAAA", "subnet-BBBBBBBB"]  # 2 AZ minimum
 ALLOWED_CIDR = "10.0.0.0/8"  # réseau autorisé à se connecter aux bases
+USER_ID = "1"  # VOTRE numéro de participant (1, 2, 3...) ; 0 = animateur
 
 ENGINE_CONFIG = {
     "mariadb": {
@@ -193,17 +197,26 @@ def standard_tags(engine: str, owner: str = "data-migration-team") -> list[dict]
         {"Key": "Project", "Value": "rds-migration"},
         {"Key": "Engine", "Value": engine},
         {"Key": "Owner", "Value": owner},
+        {"Key": "Participant", "Value": f"user{USER_ID}"},
         {"Key": "ManagedBy", "Value": "boto3-template"},
     ]
 
 
 def resource_name(engine: str, suffix: str) -> str:
-    """Convention de nommage commune : <engine>-<suffix>."""
-    return f"{engine}-{suffix}"
+    """Convention de nommage commune : <engine>-<suffix>-user<USER_ID>, pour isoler les ressources de chaque participant dans le VPC partagé."""
+    return f"{engine}-{suffix}-user{USER_ID}"
 EOF
 ```
 
-**Point de vérification** : confirmez que les credentials et la région sont valides avec un appel API inoffensif :
+**Point de vérification** : confirmez que `USER_ID` est bien le vôtre et que la convention de nommage l'inclut :
+
+```bash
+python3 -c "import rds_provisioning as p; print(p.resource_name('mariadb', 'sg'))"
+```
+
+**Résultat attendu** : `mariadb-sg-user1` (remplacez `1` par votre propre numéro — si ce n'est pas le bon, corrigez `USER_ID` dans le fichier avant de continuer).
+
+Puis confirmez que les credentials et la région sont valides avec un appel API inoffensif :
 
 ```bash
 python3 -c "import rds_provisioning as p; print(p.rds.describe_db_instances()['DBInstances'])"
@@ -542,7 +555,7 @@ python3 -c "import rds_provisioning as p; p.delete_instance(p.resource_name('mar
 
 En 15 minutes, on ne code pas une CLI complète, mais on identifie ensemble comment ce script devient un vrai template :
 
-- **Configuration externalisée** : sortir `ENGINE_CONFIG`, `VPC_ID`, `PRIVATE_SUBNET_IDS`, `ALLOWED_CIDR` dans un fichier YAML/JSON par environnement (dev/prod), au lieu de constantes en dur.
+- **Configuration externalisée** : sortir `ENGINE_CONFIG`, `VPC_ID`, `PRIVATE_SUBNET_IDS`, `ALLOWED_CIDR`, `USER_ID` dans un fichier YAML/JSON par environnement (dev/prod) ou par participant, au lieu de constantes en dur.
 - **CLI avec `argparse`** : exposer `--engine`, `--action {create,check,resize,delete}` pour piloter le script sans toucher au code.
 - **Idempotence** : avant `create_*`, vérifier via `describe_*` (avec gestion de l'exception `DBInstanceNotFoundFault`) si la ressource existe déjà, pour pouvoir relancer le script sans erreur.
 - **Secrets** : remplacer le mot de passe en dur par une génération + stockage dans AWS Secrets Manager.
