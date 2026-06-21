@@ -177,7 +177,7 @@ Choisissez ensuite **une** des options suivantes pour `ALLOWED_CIDR` (le réseau
 ALLOWED_CIDR="10.10.0.0/16"
 
 # Option 2 — votre IP publique uniquement (utile pour tester depuis votre poste via un accès réseau dédié)
-ALLOWED_CIDR="$(curl -s ip.me)/32"
+ALLOWED_CIDR="$(curl -4 -s ip.me)/32"
 
 # Option 3 — un CIDR de votre choix
 ALLOWED_CIDR="<votre CIDR>"
