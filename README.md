@@ -28,10 +28,8 @@ Plutôt que de créer chaque instance à la main dans la console, l'objectif de 
 
 ## Pré-requis
 
-- Un accès à un compte AWS sandbox (fourni pour le lab), avec :
-  - un VPC existant comportant au moins 2 sous-réseaux privés dans des AZ différentes ;
-  - des droits IAM sur `rds:*`, `ec2:*SecurityGroup*`, `ec2:Describe*` ;
-- Python ≥ 3.9, et les paquets :
+- Une machine personnelle (Linux ou Windows) avec Python ≥ 3.9 fonctionnel, et un accès réseau **direct** à l'API AWS (pas de proxy ni de filtrage sortant bloquant les endpoints AWS).
+- Les paquets nécessaires :
 
 ```bash
 python3 -m venv .venv
@@ -39,13 +37,16 @@ source .venv/bin/activate
 pip install boto3
 ```
 
-- Une clé d'accès AWS (Access Key ID + Secret Access Key) fournie pour le lab.
+- Une clé d'accès AWS (Access Key ID + Secret Access Key) transmise en début de session via un lien secret éphémère — voir [Configuration des clés d'accès](#configuration-des-clés-daccès-boto3-uniquement).
+- Un accès à un compte AWS sandbox, avec :
+  - un VPC existant comportant au moins 2 sous-réseaux privés dans des AZ différentes, en **eu-west-1** ;
+  - des droits IAM sur `rds:*`, `ec2:*SecurityGroup*`, `ec2:Describe*` ;
 
-> **Coût et durée** : la création d'une instance RDS prend réellement 5 à 10 minutes. Pensez à lancer la création tôt dans une section et à enchaîner sur la suite pendant le provisioning. **Supprimez vos instances en fin de lab** (section [Nettoyage](#10--nettoyage-fin-de-lab)) pour éviter des frais résiduels.
+> **Coût et durée** : la création d'une instance RDS prend réellement 5 à 10 minutes. Pensez à lancer la création tôt dans une section et à enchaîner sur la suite pendant le provisioning. **Toutes les ressources créées pendant la session sont détruites à la fin** (section [Nettoyage](#10--nettoyage-fin-de-lab)) — ne laissez rien tourner après le lab.
 
 ## Configuration des clés d'accès (boto3 uniquement)
 
-Ce lab n'utilise pas l'AWS CLI : boto3 sait lire les credentials directement, sans passer par `aws configure`. Deux méthodes possibles — choisissez-en une.
+Vos clés d'accès vous seront communiquées en début de session via un lien secret éphémère (à usage unique, valable pour la durée du lab uniquement). Ce lab n'utilise pas l'AWS CLI : boto3 sait lire les credentials directement, sans passer par `aws configure`. Deux méthodes possibles — choisissez-en une.
 
 **Méthode 1 — Variables d'environnement** (la plus simple pour un lab, rien n'est écrit sur disque) :
 
