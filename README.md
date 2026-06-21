@@ -159,31 +159,21 @@ Le fichier `rds_provisioning.py` sera créé puis complété au fil des sections
 
 On démarre le script par les imports, le client boto3, et le **standard commun** (naming, tags, configuration par moteur) qui sera réutilisé dans toutes les fonctions suivantes. Le VPC étant partagé par tout le groupe, on introduit ici `USER_ID` : **chacun remplace cette valeur par son propre numéro de participant** avant de continuer — c'est ce qui garantit que vos ressources n'entrent jamais en collision avec celles des autres.
 
-Renseignez d'abord, dans votre terminal, les identifiants réseau reçus via le lien secret éphémère, ainsi que votre numéro de participant :
+Renseignez d'abord vos identifiants réseau (reçus via le lien secret éphémère) et votre numéro de participant dans un fichier `.env`, à partir du modèle fourni dans le dépôt — `.env` n'est **jamais commité** (voir `.gitignore`), c'est volontaire puisqu'il contient les vraies valeurs du sandbox :
 
 ```bash
-VPC_ID="vpc-XXXXXXXX"               # VPC fourni pour le lab
-PRIVATE_SUBNET_1="subnet-AAAAAAAA"  # sous-réseau privé n°1 (AZ 1)
-PRIVATE_SUBNET_2="subnet-BBBBBBBB"  # sous-réseau privé n°2 (AZ 2)
-PUBLIC_SUBNET_1="subnet-CCCCCCCC"   # sous-réseau public n°1 (AZ 1) — utilisé seulement si vous choisissez l'option IP publique ci-dessous
-PUBLIC_SUBNET_2="subnet-DDDDDDDD"   # sous-réseau public n°2 (AZ 2)
-USER_ID="1"                         # VOTRE numéro de participant (1, 2, 3...) ; 0 = animateur
+cp .env.example .env
 ```
 
-Choisissez ensuite **une** des options suivantes pour `ALLOWED_CIDR` (le réseau source autorisé à se connecter aux bases) :
+Éditez `.env` (`VPC_ID`, `PRIVATE_SUBNET_1`/`PRIVATE_SUBNET_2`, `USER_ID`, et la ligne `ALLOWED_CIDR` — choisissez **une** des 3 options en commentaire dans le fichier : CIDR du VPC partagé, votre IP publique via `ip.me`, ou un CIDR libre ; décommentez `PUBLIC_SUBNET_1`/`PUBLIC_SUBNET_2` si vous prenez l'option IP publique). Puis chargez ces valeurs dans votre terminal :
 
 ```bash
-# Option 1 — CIDR du VPC partagé : autorise toute ressource du VPC (ex. un futur bastion) à se connecter
-ALLOWED_CIDR="10.10.0.0/16"
-
-# Option 2 — votre IP publique uniquement (utile pour tester depuis votre poste via un accès réseau dédié)
-ALLOWED_CIDR="$(curl -4 -s ip.me)/32"
-
-# Option 3 — un CIDR de votre choix
-ALLOWED_CIDR="<votre CIDR>"
+source .env
 ```
 
-Puis générez le fichier — les variables shell ci-dessus sont interpolées directement dans le code écrit (notez le `EOF` non quoté, qui autorise cette substitution) :
+> **Pourquoi `source` et pas juste éditer le fichier ?** Les commandes qui suivent (le `cat` ci-dessous, et `generate_rds_provisioning.py`) ont besoin de ces valeurs comme **variables d'environnement**. `source .env` exécute le fichier dans votre shell actuel et — grâce au mot-clé `export` qu'il contient — rend ces variables visibles par les commandes et scripts que vous lancez ensuite, dans ce même terminal.
+
+Puis générez le fichier — les variables shell chargées par `.env` sont interpolées directement dans le code écrit (notez le `EOF` non quoté, qui autorise cette substitution) :
 
 ```bash
 cat > rds_provisioning.py << EOF
@@ -210,7 +200,7 @@ SUBNET_IDS = PUBLIC_SUBNET_IDS if PUBLICLY_ACCESSIBLE else PRIVATE_SUBNET_IDS
 
 def _require_non_empty(name: str, value: str) -> None:
     if not value or not value.strip():
-        raise SystemExit(f"Configuration invalide : '{name}' est vide ou non défini (avez-vous bien exporté la variable shell avant le 'cat' ?).")
+        raise SystemExit(f"Configuration invalide : '{name}' est vide ou non défini (avez-vous bien fait 'source .env' avant le 'cat' ?).")
 
 
 _require_non_empty("VPC_ID", VPC_ID)
@@ -280,9 +270,11 @@ python3 -c "import rds_provisioning as p; print(p.VPC_ID); print(p.SUBNET_IDS); 
 
 **Résultat attendu pour `PUBLICLY_ACCESSIBLE`** : `False` si vous avez choisi l'option 1 (CIDR du VPC) ; `True` si vous avez choisi l'option 2 (votre IP publique).
 
-Si `USER_ID`, `VPC_ID`, `PRIVATE_SUBNET_IDS` ou `ALLOWED_CIDR` affichent encore les valeurs par défaut (`1`, `vpc-XXXXXXXX`...), c'est que les variables shell `VPC_ID` / `PRIVATE_SUBNET_1` / `PRIVATE_SUBNET_2` / `USER_ID` / `ALLOWED_CIDR` n'étaient pas définies dans le terminal **avant** d'exécuter la commande `cat` — redéfinissez-les puis relancez la commande `cat` (un simple `export VAR=valeur` après coup ne suffit pas : il faut régénérer le fichier).
+Si `USER_ID`, `VPC_ID`, `PRIVATE_SUBNET_IDS` ou `ALLOWED_CIDR` affichent encore les valeurs par défaut (`1`, `vpc-XXXXXXXX`...), c'est que `.env` n'avait pas été `source`-é (ou pas avec les bonnes valeurs) **avant** d'exécuter la commande `cat` — corrigez `.env`, refaites `source .env`, puis relancez la commande `cat` (un simple `source .env` après coup ne suffit pas : il faut régénérer le fichier).
 
-Si vous obtenez plutôt une erreur `SystemExit: Configuration invalide : '...' est vide ou non défini`, c'est que l'une des variables shell n'était même pas exportée du tout au moment du `cat` (par exemple `PUBLIC_SUBNET_1`/`PUBLIC_SUBNET_2` alors que vous avez choisi l'option IP publique) — exportez-la puis régénérez le fichier.
+Si vous obtenez plutôt une erreur `SystemExit: Configuration invalide : '...' est vide ou non défini`, c'est qu'une variable n'était pas exportée du tout au moment du `cat` — le plus souvent parce qu'elle est restée commentée dans `.env` (par exemple `PUBLIC_SUBNET_1`/`PUBLIC_SUBNET_2` alors que vous avez choisi l'option IP publique pour `ALLOWED_CIDR`) ou que vous avez oublié `source .env`. Décommentez/corrigez `.env`, refaites `source .env`, puis régénérez le fichier.
+
+**Rappel** : ce `source .env` doit être refait dans **chaque nouveau terminal** — les variables exportées ne survivent pas à la fermeture de la session. `.env` lui-même reste sur disque, vous n'avez qu'à le re-sourcer.
 
 Puis confirmez que les credentials et la région sont valides avec un appel API inoffensif :
 
@@ -724,13 +716,11 @@ p.ec2.delete_security_group(GroupId='<sg-id-postgres>')
 Le dépôt fournit `generate_rds_provisioning.py`, qui exécute dans l'ordre les commandes `cat` des sections 1 à 5 pour produire directement `rds_provisioning.py` dans son état final, sans repasser section par section. Utile pour valider rapidement le support ou rejouer un test, **mais ce n'est pas le chemin recommandé pour suivre le lab** — le déroulé pas à pas reste la meilleure façon d'apprendre le contenu de chaque section.
 
 ```bash
-VPC_ID="vpc-XXXXXXXX" \
-PRIVATE_SUBNET_1="subnet-AAAAAAAA" PRIVATE_SUBNET_2="subnet-BBBBBBBB" \
-USER_ID="1" ALLOWED_CIDR="10.10.0.0/16" \
+source .env
 python3 generate_rds_provisioning.py
 ```
 
-Ajoutez `PUBLIC_SUBNET_1`/`PUBLIC_SUBNET_2` si `ALLOWED_CIDR` est une IP publique, et `--steps N` (1 à 5) pour générer un état intermédiaire (ex. `--steps 3` arrête après le DB Subnet Group).
+Utilisez `--steps N` (1 à 5) pour générer un état intermédiaire (ex. `--steps 3` arrête après le DB Subnet Group). Le script lit les variables exportées par `.env` ; pensez à `source .env` dans le terminal où vous le lancez (même règle que pour le `cat` de la section 1).
 
 ## Pour aller plus loin (hors lab)
 

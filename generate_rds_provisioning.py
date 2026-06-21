@@ -11,9 +11,14 @@ Variables d'environnement requises (les mêmes que celles du README, section 1) 
   VPC_ID, PRIVATE_SUBNET_1, PRIVATE_SUBNET_2, USER_ID, ALLOWED_CIDR
   PUBLIC_SUBNET_1, PUBLIC_SUBNET_2 (uniquement si ALLOWED_CIDR est une IP publique)
 
+Elles doivent être EXPORTÉES (pas seulement définies) pour être visibles par ce
+script, qui s'exécute dans un sous-processus. Le plus simple : copiez .env.example
+en .env, éditez vos valeurs, puis "source .env" avant de lancer ce script.
+
 Exemple :
-  VPC_ID="vpc-xxx" PRIVATE_SUBNET_1="subnet-aaa" PRIVATE_SUBNET_2="subnet-bbb" \\
-  USER_ID="1" ALLOWED_CIDR="10.10.0.0/16" python3 generate_rds_provisioning.py
+  cp .env.example .env   # une seule fois, puis éditez .env
+  source .env             # à refaire dans chaque nouveau terminal
+  python3 generate_rds_provisioning.py
 """
 
 import argparse
