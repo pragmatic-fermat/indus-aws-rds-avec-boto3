@@ -20,7 +20,7 @@ Plutôt que de créer chaque instance à la main dans la console, l'objectif de 
 - créer une instance RDS (MariaDB ou PostgreSQL) via `create_db_instance` ;
 - créer et associer un groupe de sous-réseaux via `create_db_subnet_group` ;
 - créer et configurer un groupe de paramètres standardisé via `create_db_parameter_group` / `modify_db_parameter_group` ;
-- appliquer une gouvernance de tags via `add_tags_to_resource` ;
+- appliquer une gouvernance de tags via le paramètre `Tags` à la création de chaque ressource ;
 - configurer des Security Groups EC2 homogènes (ports, CIDR, chiffrement, sous-réseau privé) ;
 - vérifier l'état des ressources via les API `describe_*` ;
 - modifier et supprimer une instance de façon contrôlée ;
@@ -146,11 +146,10 @@ Le fichier `rds_provisioning.py` sera créé puis complété au fil des sections
 | 3 | [DB Subnet Group](#3--db-subnet-group) | 10 min |
 | 4 | [DB Parameter Group](#4--db-parameter-group) | 15 min |
 | 5 | [Création de l'instance RDS](#5--création-de-linstance-rds) | 20 min |
-| 6 | [Tagging & gouvernance](#6--tagging--gouvernance) | 10 min |
-| 7 | [Vérification des ressources](#7--vérification-des-ressources) | 10 min |
-| 8 | [Modification contrôlée](#8--modification-contrôlée) | 10 min |
-| 9 | [Suppression contrôlée](#9--suppression-contrôlée) | 10 min |
-| 10 | [Généralisation en template réutilisable](#10--généralisation-en-template-réutilisable) | 15 min |
+| 6 | [Vérification des ressources](#6--vérification-des-ressources) | 10 min |
+| 7 | [Modification contrôlée](#7--modification-contrôlée) | 10 min |
+| 8 | [Suppression contrôlée](#8--suppression-contrôlée) | 10 min |
+| 9 | [Généralisation en template réutilisable](#9--généralisation-en-template-réutilisable) | 15 min |
 | — | [Nettoyage final](#nettoyage-fin-de-lab) | 10 min |
 
 ---
@@ -340,7 +339,7 @@ EOF
 
 **Points clés à discuter en groupe :**
 - deux restrictions distinctes et cumulatives sur la règle d'entrée : le **port de destination** est limité à celui du moteur (3306 ou 5432, jamais une plage large) ; la **source autorisée** (`CidrIp`) est `ALLOWED_CIDR`, jamais `0.0.0.0/0` (qui autoriserait n'importe quelle IP sur Internet) ;
-- les tags sont posés **à la création** de la ressource (`TagSpecifications`) — ce n'est pas la seule façon de tagger, on verra `add_tags_to_resource` en section 6 pour les ressources RDS qui ne supportent pas toujours le tagging à la création.
+- les tags sont posés **à la création** de la ressource (`TagSpecifications`) — c'est le seul mécanisme de tagging utilisé dans ce lab, appliqué de façon homogène à toutes les ressources (sections 2 à 5).
 
 **À tester** :
 
@@ -393,7 +392,7 @@ for engine in ('mariadb', 'postgres'):
 "
 ```
 
-**Résultat attendu** : pour chaque moteur, un dict avec `DBSubnetGroupName`, `VpcId`, `SubnetGroupStatus` (`Complete`), et la liste `Subnets` détaillant chaque sous-réseau (`SubnetIdentifier`, AZ, statut) — on formalisera cette vérification en section 7.
+**Résultat attendu** : pour chaque moteur, un dict avec `DBSubnetGroupName`, `VpcId`, `SubnetGroupStatus` (`Complete`), et la liste `Subnets` détaillant chaque sous-réseau (`SubnetIdentifier`, AZ, statut) — on formalisera cette vérification en section 6.
 
 ---
 
@@ -526,40 +525,11 @@ Remplacez `<sg-id-mariadb>` / `<sg-id-postgres>` par les identifiants notés en 
 - `StorageEncrypted=True` → chiffrement activé par défaut, non négociable dans le standard ;
 - le mot de passe est en dur **uniquement pour le lab** — en production, on le génère et on le stocke dans AWS Secrets Manager (`create_random_password` + `secretsmanager.create_secret`), à mentionner mais pas à coder ici par manque de temps.
 
-> Lancez la création pour les deux moteurs maintenant, puis continuez directement section 6 et 7 : le provisioning se fait en arrière-plan côté AWS pendant que vous codez la suite.
+> Lancez la création pour les deux moteurs maintenant, puis continuez directement section 6 : le provisioning se fait en arrière-plan côté AWS pendant que vous codez la suite.
 
 ---
 
-## 6 — Tagging & gouvernance
-
-Les tags ont déjà été posés à la création (`Tags=...` dans les appels précédents). On illustre maintenant `add_tags_to_resource`, utile pour **retagger des ressources existantes** (cas réel : appliquer le nouveau standard de gouvernance à des bases déjà migrées avant la mise en place du script).
-
-```bash
-cat >> rds_provisioning.py << 'EOF'
-
-
-def apply_governance_tags(engine: str, identifier: str, extra_tags: dict[str, str]) -> None:
-    instance = rds.describe_db_instances(DBInstanceIdentifier=identifier)["DBInstances"][0]
-    arn = instance["DBInstanceArn"]
-
-    tags = standard_tags(engine) + [{"Key": k, "Value": v} for k, v in extra_tags.items()]
-
-    rds.add_tags_to_resource(ResourceName=arn, Tags=tags)
-    print(f"[{engine}] Tags de gouvernance appliqués sur {identifier}")
-EOF
-```
-
-**À tester** : appliquez un tag `CostCenter` sur l'une de vos instances.
-
-```bash
-python3 -c "import rds_provisioning as p; p.apply_governance_tags('mariadb', p.resource_name('mariadb', 'lab'), {'CostCenter': 'lab-formation'})"
-```
-
-Vérifiez-le dans la console RDS (onglet Tags de l'instance).
-
----
-
-## 7 — Vérification des ressources
+## 6 — Vérification des ressources
 
 On formalise la vérification de l'état des ressources créées, avec un mécanisme d'attente actif (polling) pour l'instance RDS dont le provisioning est asynchrone.
 
@@ -602,7 +572,7 @@ python3 -c "import rds_provisioning as p; p.check_resources('mariadb')"
 
 ---
 
-## 8 — Modification contrôlée
+## 7 — Modification contrôlée
 
 ```bash
 cat >> rds_provisioning.py << 'EOF'
@@ -628,7 +598,7 @@ python3 -c "import rds_provisioning as p; p.resize_instance(p.resource_name('mar
 
 ---
 
-## 9 — Suppression contrôlée
+## 8 — Suppression contrôlée
 
 ```bash
 cat >> rds_provisioning.py << 'EOF'
@@ -661,7 +631,7 @@ python3 -c "import rds_provisioning as p; p.delete_instance(p.resource_name('mar
 
 ---
 
-## 10 — Généralisation en template réutilisable
+## 9 — Généralisation en template réutilisable
 
 En 15 minutes, on ne code pas une CLI complète, mais on identifie ensemble comment ce script devient un vrai template :
 
