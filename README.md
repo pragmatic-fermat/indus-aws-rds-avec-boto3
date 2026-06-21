@@ -417,8 +417,21 @@ def create_parameter_group(engine: str) -> str:
             Tags=standard_tags(engine),
         )
     except rds.exceptions.DBParameterGroupAlreadyExistsFault:
-        print(f"[{engine}] Parameter group déjà existant, réutilisé : {name}")
-        return name
+        existing = rds.describe_db_parameter_groups(DBParameterGroupName=name)["DBParameterGroups"][0]
+        if existing["DBParameterGroupFamily"] == cfg["parameter_group_family"]:
+            print(f"[{engine}] Parameter group déjà existant, réutilisé : {name}")
+            return name
+        # La version par défaut du moteur a changé depuis la création (ex. AWS a déprécié
+        # l'ancienne version) : le groupe existant ne correspond plus au standard, on le
+        # recrée plutôt que de le réutiliser tel quel.
+        print(f"[{engine}] Parameter group existant obsolète (famille {existing['DBParameterGroupFamily']} != {cfg['parameter_group_family']}), recréation...")
+        rds.delete_db_parameter_group(DBParameterGroupName=name)
+        rds.create_db_parameter_group(
+            DBParameterGroupName=name,
+            DBParameterGroupFamily=cfg["parameter_group_family"],
+            Description=f"Standard parameter group for {engine}",
+            Tags=standard_tags(engine),
+        )
 
     # Exemple de paramètres standardisés (adaptez selon le moteur)
     if engine == "postgres":
@@ -652,7 +665,7 @@ En 15 minutes, on ne code pas une CLI complète, mais on identifie ensemble comm
 
 - **Configuration externalisée** : sortir `ENGINE_CONFIG`, `VPC_ID`, `PRIVATE_SUBNET_IDS`, `ALLOWED_CIDR`, `USER_ID` dans un fichier YAML/JSON par environnement (dev/prod) ou par participant, au lieu de constantes en dur.
 - **CLI avec `argparse`** : exposer `--engine`, `--action {create,check,resize,delete}` pour piloter le script sans toucher au code.
-- **Idempotence** : déjà géré dans les fonctions `create_*` (sections 2 à 5) en attrapant l'exception « déjà existant » de chaque service pour réutiliser la ressource au lieu de planter. Pour aller plus loin : vérifier aussi que la configuration de la ressource existante correspond bien au standard attendu (et la corriger sinon), plutôt que de simplement la réutiliser telle quelle.
+- **Idempotence** : déjà géré dans les fonctions `create_*` (sections 2 à 5) en attrapant l'exception « déjà existant » de chaque service pour réutiliser la ressource au lieu de planter. `create_parameter_group` va plus loin : si la famille du groupe existant ne correspond plus au standard actuel (ex. AWS a déprécié l'ancienne version par défaut entre deux exécutions), il le recrée plutôt que de le réutiliser tel quel — un cas réellement rencontré en lab. Pour aller plus loin : appliquer la même vérification de conformité aux autres ressources (security group, subnet group).
 - **Secrets** : remplacer le mot de passe en dur par une génération + stockage dans AWS Secrets Manager.
 - **Traçabilité** : journaliser chaque appel (script, paramètres, résultat) dans un fichier de log ou CloudTrail, pour l'audit de gouvernance.
 
