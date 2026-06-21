@@ -75,14 +75,20 @@ aws_secret_access_key = <votre secret access key>
 region = eu-west-1
 ```
 
-Dans les deux cas, vérifiez que boto3 trouve bien vos credentials avant de continuer :
+Dans les deux cas, vérifiez que boto3 trouve bien vos credentials avant de continuer, en exécutant cette commande dans votre terminal (méthode 1) ou simplement en relançant un nouveau terminal (méthode 2, pour que les fichiers `~/.aws` soient relus) :
 
-```python
-import boto3
-
-print(boto3.Session().get_credentials().access_key)
-print(boto3.client("sts").get_caller_identity()["Account"])
+```bash
+python3 -c "import boto3; s=boto3.Session(); print(s.get_credentials().access_key); print(boto3.client('sts', region_name='eu-west-1').get_caller_identity()['Account'])"
 ```
+
+**Résultat attendu** : deux lignes s'affichent, sans erreur — l'Access Key ID (commence par `AKIA...`) puis l'identifiant du compte AWS sandbox (12 chiffres), par exemple :
+
+```
+AKIAIOSFODNN7EXAMPLE
+123456789012
+```
+
+Si vous obtenez une erreur du type `NoCredentialsError` ou `UnrecognizedClientException`, vérifiez l'orthographe des variables d'environnement ou le contenu des fichiers `~/.aws/credentials` / `~/.aws/config` avant de continuer.
 
 > **Sécurité** : ne mettez jamais de clé d'accès en dur dans le script ni dans un fichier versionné. Les variables d'environnement ne survivent qu'à la session de terminal courante — c'est volontaire pour un lab ponctuel.
 
