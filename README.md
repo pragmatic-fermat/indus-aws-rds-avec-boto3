@@ -1,6 +1,6 @@
 # Lab — Industrialiser la création de bases RDS avec boto3
 
-**Durée : 2h15** · **Niveau : confirmé (Python + AWS)**
+**Durée : 1h10** · **Niveau : confirmé (Python + AWS)**
 
 ## Contexte
 
@@ -141,17 +141,17 @@ Le fichier `rds_provisioning.py` sera créé puis complété au fil des sections
 
 | # | Section | Durée indicative |
 |---|---|---|
-| 1 | [Mise en place & standard de configuration](#1--mise-en-place--standard-de-configuration) | 15 min |
-| 2 | [Security Groups](#2--security-groups) | 15 min |
-| 3 | [DB Subnet Group](#3--db-subnet-group) | 10 min |
-| 4 | [DB Parameter Group](#4--db-parameter-group) | 15 min |
-| 5 | [Création de l'instance RDS](#5--création-de-linstance-rds) | 20 min |
-| 6 | [Vérification des ressources](#6--vérification-des-ressources) | 10 min |
-| 7 | [Test de connexion SQL](#7--test-de-connexion-sql) | 10 min |
-| 8 | [Modification contrôlée](#8--modification-contrôlée) | 10 min |
-| 9 | [Suppression contrôlée](#9--suppression-contrôlée) | 10 min |
-| 10 | [Généralisation en template réutilisable](#10--généralisation-en-template-réutilisable) | 15 min |
-| — | [Nettoyage final](#nettoyage-fin-de-lab) | 10 min |
+| 1 | [Mise en place & standard de configuration](#1--mise-en-place--standard-de-configuration) | 7 min |
+| 2 | [Security Groups](#2--security-groups) | 7 min |
+| 3 | [DB Subnet Group](#3--db-subnet-group) | 5 min |
+| 4 | [DB Parameter Group](#4--db-parameter-group) | 7 min |
+| 5 | [Création de l'instance RDS](#5--création-de-linstance-rds) | 10 min |
+| 6 | [Vérification des ressources](#6--vérification-des-ressources) | 5 min |
+| 7 | [Test de connexion SQL](#7--test-de-connexion-sql) | 5 min |
+| 8 | [Modification contrôlée](#8--modification-contrôlée) | 5 min |
+| 9 | [Suppression contrôlée](#9--suppression-contrôlée) | 5 min |
+| 10 | [Généralisation en template réutilisable](#10--généralisation-en-template-réutilisable) | 7 min |
+| — | [Nettoyage final](#nettoyage-fin-de-lab) | 5 min |
 
 ---
 
@@ -710,7 +710,7 @@ python3 -c "import rds_provisioning as p; p.delete_instance(p.resource_name('mar
 
 ## 10 — Généralisation en template réutilisable
 
-En 15 minutes, on ne code pas une CLI complète, mais on identifie ensemble comment ce script devient un vrai template :
+En 7 minutes, on ne code pas une CLI complète, mais on identifie ensemble comment ce script devient un vrai template :
 
 - **Configuration externalisée** : sortir `ENGINE_CONFIG`, `VPC_ID`, `PRIVATE_SUBNET_IDS`, `ALLOWED_CIDR`, `USER_ID` dans un fichier YAML/JSON par environnement (dev/prod) ou par participant, au lieu de constantes en dur.
 - **CLI avec `argparse`** : exposer `--engine`, `--action {create,check,test,resize,delete}` pour piloter le script sans toucher au code.
