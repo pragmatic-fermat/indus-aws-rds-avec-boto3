@@ -145,6 +145,7 @@ cp .env.example .env
 | `ALLOWED_CIDR` | Réseau autorisé à se connecter aux bases : CIDR du VPC (base privée), votre IP publique via `$(curl -4 -s ip.me)` (base publique), ou un CIDR libre |
 | `USER_ID` | Votre numéro de participant (1, 2, 3…) — `0` est réservé à l'animateur |
 | `MASTER_PASSWORD` | Mot de passe administrateur des instances RDS (lab uniquement) |
+| `CORENAME` | Identifiant de session inclus dans le nom des instances RDS (`mariadb-lab-user0` pour la valeur par défaut `lab-user`) |
 
 ```bash
 source .env
@@ -171,6 +172,7 @@ ALLOWED_CIDR = "$ALLOWED_CIDR"  # réseau autorisé à se connecter aux bases
 ALLOWED_CIDR = str(ipaddress.ip_network(ALLOWED_CIDR, strict=False))  # normalise IP nue (ex. 1.2.3.4) en notation CIDR (1.2.3.4/32) — requis par l'API EC2
 USER_ID = "$USER_ID"  # VOTRE numéro de participant (1, 2, 3...) ; 0 = animateur
 MASTER_PASSWORD = "$MASTER_PASSWORD"  # mot de passe administrateur des instances RDS (lab uniquement)
+CORENAME = "$CORENAME"  # identifiant de session, variabilisé via .env (ex. "lab-user")
 
 # Si ALLOWED_CIDR est une plage privée (RFC1918, ex. le CIDR du VPC), la base reste privée.
 # Si c'est une IP/plage routable sur Internet (ex. votre IP publique), la base est rendue publique
@@ -188,6 +190,7 @@ _require_non_empty("VPC_ID", VPC_ID)
 _require_non_empty("USER_ID", USER_ID)
 _require_non_empty("ALLOWED_CIDR", ALLOWED_CIDR)
 _require_non_empty("MASTER_PASSWORD", MASTER_PASSWORD)
+_require_non_empty("CORENAME", CORENAME)
 for _i, _subnet in enumerate(PRIVATE_SUBNET_IDS, start=1):
     _require_non_empty(f"PRIVATE_SUBNET_{_i}", _subnet)
 if PUBLICLY_ACCESSIBLE:
@@ -229,6 +232,11 @@ def standard_tags(engine: str, owner: str = "data-migration-team") -> list[dict]
 def resource_name(engine: str, suffix: str) -> str:
     """Convention de nommage commune : <engine>-<suffix>-user<USER_ID>, pour isoler les ressources de chaque participant dans le VPC partagé."""
     return f"{engine}-{suffix}-user{USER_ID}"
+
+
+def instance_name(engine: str) -> str:
+    """Identifiant de l'instance RDS : <engine>-<CORENAME><USER_ID> (ex. mariadb-lab-user0)."""
+    return f"{engine}-{CORENAME}{USER_ID}"
 EOF
 ```
 
@@ -457,7 +465,7 @@ python3 -c "import rds_provisioning as p; print(p.create_parameter_group('mariad
 
 ## 5 — Création de l'instance RDS
 
-On assemble les briques précédentes (Security Group, Subnet Group, Parameter Group) pour créer l'instance. C'est ici qu'apparaît le nom qu'on retrouvera ensuite dans toutes les sections suivantes : `identifier = resource_name(engine, "lab")`, soit **`mariadb-lab-user<USER_ID>`** et **`postgres-lab-user<USER_ID>`** — le suffixe `"lab"` est le même partout (sections 5 à 9), c'est ce qui permet à `wait_for_instance_available`, `check_resources`, `test_connection`, `resize_instance` et `delete_instance` de retrouver l'instance sans qu'on retape son nom complet à chaque fois.
+On assemble les briques précédentes (Security Group, Subnet Group, Parameter Group) pour créer l'instance. C'est ici qu'apparaît le nom qu'on retrouvera ensuite dans toutes les sections suivantes : `identifier = instance_name(engine)`, soit **`mariadb-lab-user<USER_ID>`** et **`postgres-lab-user<USER_ID>`** pour la valeur par défaut `CORENAME="lab-user"` — ce nom est le même partout (sections 5 à 9), c'est ce qui permet à `wait_for_instance_available`, `check_resources`, `test_connection`, `resize_instance` et `delete_instance` de retrouver l'instance sans qu'on retape son nom complet à chaque fois.
 
 ```bash
 cat >> rds_provisioning.py << 'EOF'
@@ -466,7 +474,7 @@ cat >> rds_provisioning.py << 'EOF'
 def create_rds_instance(engine: str, sg_id: str, subnet_group: str, parameter_group: str,
                          master_username: str = "admin_lab", master_password: str = MASTER_PASSWORD) -> str:
     cfg = ENGINE_CONFIG[engine]
-    identifier = resource_name(engine, "lab")  # ex. mariadb-lab-user0 / postgres-lab-user0
+    identifier = instance_name(engine)  # ex. mariadb-lab-user0 / postgres-lab-user0 (pour CORENAME="lab-user")
 
     try:
         rds.create_db_instance(
@@ -538,7 +546,7 @@ def wait_for_instance_available(identifier: str, timeout_s: int = 900, poll_s: i
 
 
 def check_resources(engine: str) -> None:
-    instances = rds.describe_db_instances(DBInstanceIdentifier=resource_name(engine, "lab"))  # ex. mariadb-lab-user0
+    instances = rds.describe_db_instances(DBInstanceIdentifier=instance_name(engine))  # ex. mariadb-lab-user0 / postgres-lab-user0
     subnet_groups = rds.describe_db_subnet_groups(DBSubnetGroupName=resource_name(engine, "subnet-group"))  # ex. mariadb-subnet-group-user0
     parameter_groups = rds.describe_db_parameter_groups(DBParameterGroupName=resource_name(engine, "params"))  # ex. mariadb-params-user0
 
@@ -548,11 +556,13 @@ def check_resources(engine: str) -> None:
 EOF
 ```
 
-**À tester** — `wait_for_instance_available` attend `mariadb-lab-user<USER_ID>` (créée en section 5), `check_resources` interroge les trois ressources de ce moteur (`mariadb-lab-user<USER_ID>`, `mariadb-subnet-group-user<USER_ID>`, `mariadb-params-user<USER_ID>`) :
+**À tester** — `wait_for_instance_available` attend les deux instances (`mariadb-lab-user<USER_ID>` et `postgres-lab-user<USER_ID>` pour `CORENAME="lab-user"`), `check_resources` interroge les trois ressources de chaque moteur :
 
 ```bash
-python3 -c "import rds_provisioning as p; p.wait_for_instance_available(p.resource_name('mariadb', 'lab'))"
+python3 -c "import rds_provisioning as p; p.wait_for_instance_available(p.instance_name('mariadb'))"
+python3 -c "import rds_provisioning as p; p.wait_for_instance_available(p.instance_name('postgres'))"
 python3 -c "import rds_provisioning as p; p.check_resources('mariadb')"
+python3 -c "import rds_provisioning as p; p.check_resources('postgres')"
 ```
 
 > boto3 propose aussi des **waiters** natifs (`rds.get_waiter("db_instance_available").wait(...)`) qui font le même travail que `wait_for_instance_available` avec un peu moins de code. On a écrit la version manuelle pour comprendre le mécanisme ; mentionnez le waiter natif comme alternative en production.
@@ -612,8 +622,8 @@ EOF
 **À tester** :
 
 ```bash
-python3 -c "import rds_provisioning as p; p.test_connection('mariadb', p.resource_name('mariadb', 'lab'))"
-python3 -c "import rds_provisioning as p; p.test_connection('postgres', p.resource_name('postgres', 'lab'))"
+python3 -c "import rds_provisioning as p; p.test_connection('mariadb', p.instance_name('mariadb'))"
+python3 -c "import rds_provisioning as p; p.test_connection('postgres', p.instance_name('postgres'))"
 ```
 
 **Résultat attendu** : `Connexion SQL réussie sur <endpoint>:<port>` pour chaque moteur.
@@ -645,13 +655,13 @@ EOF
 **À tester** — passez `mariadb-lab-user0` de `db.t3.micro` à `db.t3.small` :
 
 ```bash
-python3 -c "import rds_provisioning as p; p.resize_instance(p.resource_name('mariadb', 'lab'))"
+python3 -c "import rds_provisioning as p; p.resize_instance(p.instance_name('mariadb'))"
 ```
 
 Le changement n'est pas instantané : l'instance passe par le statut `modifying` pendant quelques minutes. Vérifiez la progression et la classe finale :
 
 ```bash
-python3 -c "import rds_provisioning as p; i = p.rds.describe_db_instances(DBInstanceIdentifier=p.resource_name('mariadb', 'lab'))['DBInstances'][0]; print(i['DBInstanceStatus'], i['DBInstanceClass'])"
+python3 -c "import rds_provisioning as p; i = p.rds.describe_db_instances(DBInstanceIdentifier=p.instance_name('mariadb'))['DBInstances'][0]; print(i['DBInstanceStatus'], i['DBInstanceClass'])"
 ```
 
 **Résultat attendu** : `modifying db.t3.micro` juste après l'appel, puis `available db.t3.small` une fois la modification terminée.
@@ -683,10 +693,10 @@ def delete_instance(identifier: str, take_final_snapshot: bool = True) -> None:
 EOF
 ```
 
-**À tester** — `p.resource_name('mariadb', 'lab')` résout vers `mariadb-lab-user<USER_ID>`, l'instance créée en section 5 ; contrairement aux fonctions précédentes, `delete_instance` ne reconstruit pas elle-même le nom (elle reçoit `identifier` déjà calculé), pour pouvoir aussi l'utiliser plus tard sur un identifiant obtenu autrement (ex. listé via `describe_db_instances`) :
+**À tester** — `p.instance_name('mariadb')` résout vers `mariadb-lab-user<USER_ID>` (pour `CORENAME="lab-user"`), l'instance créée en section 5 ; contrairement aux fonctions précédentes, `delete_instance` ne reconstruit pas elle-même le nom (elle reçoit `identifier` déjà calculé), pour pouvoir aussi l'utiliser plus tard sur un identifiant obtenu autrement (ex. listé via `describe_db_instances`) :
 
 ```bash
-python3 -c "import rds_provisioning as p; p.delete_instance(p.resource_name('mariadb', 'lab'), take_final_snapshot=False)"
+python3 -c "import rds_provisioning as p; p.delete_instance(p.instance_name('mariadb'), take_final_snapshot=False)"
 ```
 
 **Point clé** : la confirmation interactive n'est pas une API AWS — c'est un garde-fou qu'on ajoute nous-mêmes dans le template pour éviter une suppression accidentelle en production. C'est ce genre de détail qui distingue un script ponctuel d'un **template industrialisé**.
@@ -723,11 +733,11 @@ def main() -> None:
     elif args.action == "check":
         check_resources(args.engine)
     elif args.action == "test":
-        test_connection(args.engine, resource_name(args.engine, "lab"))  # ex. mariadb-lab-user0
+        test_connection(args.engine, instance_name(args.engine))  # ex. mariadb-lab-user0
     elif args.action == "resize":
-        resize_instance(resource_name(args.engine, "lab"))  # ex. mariadb-lab-user0
+        resize_instance(instance_name(args.engine))  # ex. mariadb-lab-user0
     elif args.action == "delete":
-        delete_instance(resource_name(args.engine, "lab"))  # ex. mariadb-lab-user0
+        delete_instance(instance_name(args.engine))  # ex. mariadb-lab-user0
 
 
 if __name__ == "__main__":
