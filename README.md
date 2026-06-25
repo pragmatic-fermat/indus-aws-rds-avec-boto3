@@ -129,7 +129,20 @@ Renseignez d'abord vos identifiants réseau (reçus via le lien secret éphémè
 cp .env.example .env
 ```
 
-Éditez `.env` (`VPC_ID`, `PRIVATE_SUBNET_1`/`PRIVATE_SUBNET_2`, `USER_ID`, `MASTER_PASSWORD`, et la ligne `ALLOWED_CIDR` — choisissez **une** des 3 options en commentaire dans le fichier : CIDR du VPC partagé, votre IP publique via `ip.me`, ou un CIDR libre ; décommentez `PUBLIC_SUBNET_1`/`PUBLIC_SUBNET_2` si vous prenez l'option IP publique). Puis chargez ces valeurs dans votre terminal :
+Éditez `.env` en renseignant les variables ci-dessous, puis chargez ces valeurs dans votre terminal :
+
+| Variable | Signification |
+|---|---|
+| `AWS_ACCESS_KEY_ID` | Clé d'accès AWS communiquée en début de session |
+| `AWS_SECRET_ACCESS_KEY` | Clé secrète associée |
+| `VPC_ID` | Identifiant du VPC partagé par le groupe (`vpc-...`) |
+| `PRIVATE_SUBNET_1` | Sous-réseau privé en eu-west-1a (`subnet-...`) |
+| `PRIVATE_SUBNET_2` | Sous-réseau privé en eu-west-1b (`subnet-...`) |
+| `PUBLIC_SUBNET_1` | Sous-réseau public en eu-west-1a — requis uniquement si `ALLOWED_CIDR` est une IP publique |
+| `PUBLIC_SUBNET_2` | Sous-réseau public en eu-west-1b — requis uniquement si `ALLOWED_CIDR` est une IP publique |
+| `ALLOWED_CIDR` | Réseau autorisé à se connecter aux bases : CIDR du VPC (base privée), votre IP publique via `$(curl -4 -s ip.me)` (base publique), ou un CIDR libre |
+| `USER_ID` | Votre numéro de participant (1, 2, 3…) — `0` est réservé à l'animateur |
+| `MASTER_PASSWORD` | Mot de passe administrateur des instances RDS (lab uniquement) |
 
 ```bash
 source .env
