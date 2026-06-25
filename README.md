@@ -126,6 +126,8 @@ On démarre le script par les imports, le client boto3, et le **standard commun*
 Renseignez d'abord vos identifiants réseau (reçus via le lien secret éphémère) et votre numéro de participant dans un fichier `.env`, à partir du modèle fourni dans le dépôt — `.env` n'est **jamais commité** (voir `.gitignore`), c'est volontaire puisqu'il contient les vraies valeurs du sandbox :
 
 ```bash
+git clone https://github.com/pragmatic-fermat/indus-aws-rds-avec-boto3.git
+cd indus-aws-rds-avec-boto3
 cp .env.example .env
 ```
 
