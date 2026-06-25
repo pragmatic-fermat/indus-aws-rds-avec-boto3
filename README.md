@@ -189,6 +189,7 @@ VPC_ID = "$VPC_ID"  # VPC unique, partagé par tout le groupe
 PRIVATE_SUBNET_IDS = ["$PRIVATE_SUBNET_1", "$PRIVATE_SUBNET_2"]  # 2 AZ minimum
 PUBLIC_SUBNET_IDS = ["$PUBLIC_SUBNET_1", "$PUBLIC_SUBNET_2"]  # 2 AZ minimum, avec route vers une Internet Gateway
 ALLOWED_CIDR = "$ALLOWED_CIDR"  # réseau autorisé à se connecter aux bases
+ALLOWED_CIDR = str(ipaddress.ip_network(ALLOWED_CIDR, strict=False))  # normalise IP nue (ex. 1.2.3.4) en notation CIDR (1.2.3.4/32) — requis par l'API EC2
 USER_ID = "$USER_ID"  # VOTRE numéro de participant (1, 2, 3...) ; 0 = animateur
 MASTER_PASSWORD = "$MASTER_PASSWORD"  # mot de passe administrateur des instances RDS (lab uniquement)
 
@@ -264,7 +265,7 @@ python3 -c "import rds_provisioning as p; print(p.resource_name('mariadb', 'sg')
 
 **Résultat attendu** : `mariadb-sg-user<votre numéro>` (par exemple `mariadb-sg-user0` pour l'animateur).
 
-Vérifiez aussi que `VPC_ID`, `PRIVATE_SUBNET_IDS` et `ALLOWED_CIDR` ont bien été interpolés avec vos vraies valeurs (et non `vpc-XXXXXXXX`) :
+Vérifiez aussi que `VPC_ID`, `PRIVATE_SUBNET_IDS` et `ALLOWED_CIDR` ont bien été interpolés avec vos vraies valeurs (et non `vpc-XXXXXXXX`) — notez que si votre `.env` utilise `$(curl -4 -s ip.me)`, `ALLOWED_CIDR` affichera une notation CIDR complète (ex. `172.232.193.82/32`) même si `ip.me` renvoie une IP nue : c'est la ligne de normalisation `ipaddress.ip_network(...)` qui convertit, car l'API EC2 (`authorize_security_group_ingress`) requiert la notation CIDR :
 
 ```bash
 python3 -c "import rds_provisioning as p; print(p.VPC_ID); print(p.SUBNET_IDS); print(p.ALLOWED_CIDR); print(p.PUBLICLY_ACCESSIBLE)"
@@ -347,10 +348,12 @@ EOF
 **À tester** :
 
 ```bash
-python3 -c "import rds_provisioning as p; print(p.create_db_security_group('mariadb')); print(p.create_db_security_group('postgres'))"
+export SG_ID_MARIADB=$(python3 -c "import rds_provisioning as p; print(p.create_db_security_group('mariadb'))" | tail -n1)
+export SG_ID_POSTGRES=$(python3 -c "import rds_provisioning as p; print(p.create_db_security_group('postgres'))" | tail -n1)
+echo "mariadb: $SG_ID_MARIADB / postgres: $SG_ID_POSTGRES"
 ```
 
-Notez les deux `sg_id` affichés (`sg-...`) — c'est l'identifiant AWS, généré automatiquement, distinct du **nom** du security group (`GroupName=name`) que vous retrouverez dans la console : `mariadb-sg-user<USER_ID>` / `postgres-sg-user<USER_ID>`, construit par `resource_name(engine, "sg")`. Vérifiez dans la console EC2 → Security Groups que les règles d'entrée sont correctes.
+Les deux `sg_id` (`sg-...`) sont capturés dans les variables d'environnement `SG_ID_MARIADB` / `SG_ID_POSTGRES`, réutilisées telles quelles plus loin (sections 5 et nettoyage) plutôt que retapées à la main — le `| tail -n1` ne garde que la dernière ligne affichée, car `create_db_security_group` imprime aussi une ligne de statut avant de renvoyer le `sg_id` — c'est l'identifiant AWS, généré automatiquement, distinct du **nom** du security group (`GroupName=name`) que vous retrouverez dans la console : `mariadb-sg-user<USER_ID>` / `postgres-sg-user<USER_ID>`, construit par `resource_name(engine, "sg")`. Vérifiez dans la console EC2 → Security Groups que les règles d'entrée sont correctes.
 
 ---
 
@@ -515,14 +518,14 @@ EOF
 **À tester** (lancez les deux créations, le provisioning se fait en arrière-plan) :
 
 ```bash
-python3 -c "import rds_provisioning as p; p.create_rds_instance('mariadb', '<sg-id-mariadb>', p.resource_name('mariadb', 'subnet-group'), p.resource_name('mariadb', 'params'))"
+python3 -c "import rds_provisioning as p; p.create_rds_instance('mariadb', '$SG_ID_MARIADB', p.resource_name('mariadb', 'subnet-group'), p.resource_name('mariadb', 'params'))"
 ```
 
 ```bash
-python3 -c "import rds_provisioning as p; p.create_rds_instance('postgres', '<sg-id-postgres>', p.resource_name('postgres', 'subnet-group'), p.resource_name('postgres', 'params'))"
+python3 -c "import rds_provisioning as p; p.create_rds_instance('postgres', '$SG_ID_POSTGRES', p.resource_name('postgres', 'subnet-group'), p.resource_name('postgres', 'params'))"
 ```
 
-Remplacez `<sg-id-mariadb>` / `<sg-id-postgres>` par les identifiants notés en section 2. Les deux derniers arguments, `p.resource_name('mariadb', 'subnet-group')` et `p.resource_name('mariadb', 'params')`, résolvent respectivement vers `mariadb-subnet-group-user<USER_ID>` et `mariadb-params-user<USER_ID>` — les noms créés aux sections 3 et 4, qu'on retrouve ici sans les retaper en dur.
+`$SG_ID_MARIADB` / `$SG_ID_POSTGRES` reprennent les identifiants exportés en section 2, sans avoir à les retaper à la main. Les deux derniers arguments, `p.resource_name('mariadb', 'subnet-group')` et `p.resource_name('mariadb', 'params')`, résolvent respectivement vers `mariadb-subnet-group-user<USER_ID>` et `mariadb-params-user<USER_ID>` — les noms créés aux sections 3 et 4, qu'on retrouve ici sans les retaper en dur.
 
 **Points clés à discuter :**
 - le choix MariaDB vs PostgreSQL se fait uniquement via l'argument `engine` passé à `create_rds_instance('mariadb', ...)` ou `create_rds_instance('postgres', ...)` — cet argument sert de clé dans `ENGINE_CONFIG` (section 1) pour récupérer la version, le port, la famille de paramètres, et c'est `cfg["engine"]` qui est transmis à AWS via `Engine=cfg["engine"]` ;
@@ -581,11 +584,14 @@ python3 -c "import rds_provisioning as p; p.check_resources('mariadb')"
 
 `DBInstanceStatus = "available"` (section 6) signifie que l'instance RDS est prête côté AWS — pas qu'elle est réellement **joignable et utilisable** depuis votre poste : un Security Group trop restrictif, un mauvais `ALLOWED_CIDR`, ou un identifiant erroné passeraient inaperçus avec `describe_db_instances` seul. On ajoute donc un vrai test de connexion SQL, avec les credentials de `.env`.
 
-Installez les pilotes SQL nécessaires (uniquement pour ce test, le reste du script n'en dépend pas) :
+Installez les pilotes SQL nécessaires (uniquement pour ce test, le reste du script n'en dépend pas) — dans le venv créé en [Pré-requis](#pré-requis) :
 
 ```bash
+source .venv/bin/activate  # si ce n'est pas déjà fait
 pip install pymysql psycopg2-binary
 ```
+
+> Sur une distribution Linux récente (Debian/Ubuntu notamment), un `pip install` hors venv échoue avec `error: externally-managed-environment` — c'est la raison pour laquelle on installe ces pilotes dans le venv plutôt que globalement.
 
 ```bash
 cat >> rds_provisioning.py << 'EOF'
@@ -761,7 +767,7 @@ python3 rds_provisioning.py --engine mariadb --action delete
 python3 rds_provisioning.py --engine postgres --action delete
 ```
 
-Puis, une fois les instances supprimées (vérifiez via `check_resources` ou la console), supprimez les ressources annexes — chaque appel `p.resource_name(engine, suffix)` reconstruit le même nom que celui utilisé à la création (`mariadb-subnet-group-user<USER_ID>`, `postgres-params-user<USER_ID>`, etc.) ; seuls les security groups n'ont pas de fonction dédiée pour les retrouver par nom, d'où l'usage direct du `sg_id` noté en section 2 :
+Puis, une fois les instances supprimées (vérifiez via `check_resources` ou la console), supprimez les ressources annexes — chaque appel `p.resource_name(engine, suffix)` reconstruit le même nom que celui utilisé à la création (`mariadb-subnet-group-user<USER_ID>`, `postgres-params-user<USER_ID>`, etc.) ; seuls les security groups n'ont pas de fonction dédiée pour les retrouver par nom, d'où l'usage direct des variables `$SG_ID_MARIADB` / `$SG_ID_POSTGRES` exportées en section 2 (si le terminal a changé depuis, récupérez-les via `aws ec2 describe-security-groups` ou la console) :
 
 ```bash
 python3 -c "
@@ -770,8 +776,8 @@ p.rds.delete_db_subnet_group(DBSubnetGroupName=p.resource_name('mariadb', 'subne
 p.rds.delete_db_subnet_group(DBSubnetGroupName=p.resource_name('postgres', 'subnet-group'))
 p.rds.delete_db_parameter_group(DBParameterGroupName=p.resource_name('mariadb', 'params'))
 p.rds.delete_db_parameter_group(DBParameterGroupName=p.resource_name('postgres', 'params'))
-p.ec2.delete_security_group(GroupId='<sg-id-mariadb>')
-p.ec2.delete_security_group(GroupId='<sg-id-postgres>')
+p.ec2.delete_security_group(GroupId='$SG_ID_MARIADB')
+p.ec2.delete_security_group(GroupId='$SG_ID_POSTGRES')
 "
 ```
 
@@ -782,6 +788,13 @@ Le dépôt fournit `generate_rds_provisioning.py`, qui exécute dans l'ordre les
 ```bash
 source .env
 python3 generate_rds_provisioning.py
+```
+
+Si vous enchaînez immédiatement avec un run complet (y compris la section 7 — test de connexion SQL), installez aussi les pilotes SQL dans le venv avant de lancer `test_connection` — ils sont normalement installés à la section 7, mais cette étape est absente de `generate_rds_provisioning.py` qui ne génère que le code Python, pas les dépendances :
+
+```bash
+source .venv/bin/activate
+pip install pymysql psycopg2-binary
 ```
 
 Utilisez `--steps N` (1 à 10) pour générer un état intermédiaire (ex. `--steps 3` arrête après le DB Subnet Group). Le script lit les variables exportées par `.env` ; pensez à `source .env` dans le terminal où vous le lancez (même règle que pour le `cat` de la section 1).
