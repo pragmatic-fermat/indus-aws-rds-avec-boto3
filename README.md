@@ -47,64 +47,28 @@ pip install boto3
 
 > **Coût et durée** : la création d'une instance RDS prend réellement 5 à 10 minutes. Pensez à lancer la création tôt dans une section et à enchaîner sur la suite pendant le provisioning. **Toutes les ressources créées pendant la session sont détruites à la fin** (section [Nettoyage](#nettoyage-fin-de-lab)) — ne laissez rien tourner après le lab.
 
-## Configuration des clés d'accès (boto3 uniquement)
+## Configuration des clés d'accès
 
-Vos clés d'accès vous seront communiquées en début de session via un lien secret éphémère (à usage unique, valable pour la durée du lab uniquement). Ce lab n'utilise pas l'AWS CLI : boto3 sait lire les credentials directement, sans passer par `aws configure`. Deux méthodes possibles — choisissez-en une.
-
-> **Si votre machine a déjà des profils AWS configurés** (autre projet, autre client...), ne touchez pas à ceux-ci : utilisez la méthode 1 (les variables d'environnement sont toujours prioritaires sur tout profil existant, donc aucun risque de conflit), ou créez un profil **nommé** dédié au lab (méthode 2 ci-dessous) plutôt que d'écraser `[default]`.
-
-**Méthode 1 — Variables d'environnement** (la plus simple pour un lab, rien n'est écrit sur disque, et toujours prioritaire sur vos profils existants) :
+Vos clés d'accès vous seront communiquées en début de session via un lien secret éphémère. Renseignez-les dans `.env` (les deux premières lignes) :
 
 ```bash
 export AWS_ACCESS_KEY_ID="<votre access key id>"
 export AWS_SECRET_ACCESS_KEY="<votre secret access key>"
-export AWS_DEFAULT_REGION="eu-west-1"
 ```
 
-boto3 les détecte automatiquement, sans aucune configuration dans le script.
-
-**Méthode 2 — Fichiers de configuration**, créés manuellement (sans aws-cli), sous un profil nommé `lab` pour ne pas écraser un éventuel profil `default` existant :
-
-`~/.aws/credentials` :
-
-```ini
-[lab]
-aws_access_key_id = <votre access key id>
-aws_secret_access_key = <votre secret access key>
-```
-
-`~/.aws/config` :
-
-```ini
-[profile lab]
-region = eu-west-1
-```
-
-Puis indiquez explicitement à boto3 quel profil utiliser pour ce lab :
+Puis chargez le fichier dans votre terminal (à refaire dans chaque nouveau terminal) :
 
 ```bash
-export AWS_PROFILE="lab"
+source .env
 ```
 
-Dans les deux cas, vérifiez que boto3 trouve bien vos credentials avant de continuer, en exécutant cette commande dans votre terminal :
+boto3 lit ces variables d'environnement automatiquement. Vérifiez que les credentials sont valides avant de continuer :
 
 ```bash
-python3 -c "import boto3; s=boto3.Session(); print(s.profile_name); print(s.get_credentials().access_key); print(boto3.client('sts', region_name='eu-west-1').get_caller_identity()['Account'])"
+python3 -c "import boto3; print(boto3.client('sts', region_name='eu-west-1').get_caller_identity()['Account'])"
 ```
 
-**Résultat attendu** : trois lignes s'affichent, sans erreur — le nom du profil utilisé (`default` pour la méthode 1, `lab` pour la méthode 2), l'Access Key ID (commence par `AKIA...`), puis l'identifiant du compte AWS sandbox (12 chiffres), par exemple :
-
-```
-lab
-AKIAIOSFODNN7EXAMPLE
-123456789012
-```
-
-Si le profil ou la clé affichés ne sont pas ceux attendus, vérifiez la valeur de `AWS_PROFILE` et l'absence d'anciennes variables `AWS_ACCESS_KEY_ID` exportées dans votre terminal (elles ont priorité sur tout le reste).
-
-Si vous obtenez une erreur du type `NoCredentialsError` ou `UnrecognizedClientException`, vérifiez l'orthographe des variables d'environnement ou le contenu des fichiers `~/.aws/credentials` / `~/.aws/config` avant de continuer.
-
-> **Sécurité** : ne mettez jamais de clé d'accès en dur dans le script ni dans un fichier versionné. Les variables d'environnement ne survivent qu'à la session de terminal courante — c'est volontaire pour un lab ponctuel.
+**Résultat attendu** : l'identifiant du compte AWS sandbox (12 chiffres), sans erreur. Si vous obtenez `NoCredentialsError` ou `InvalidClientTokenId`, vérifiez que `.env` a bien été édité avec vos vraies valeurs et que `source .env` a été exécuté dans ce terminal.
 
 ## Architecture du script
 
