@@ -152,7 +152,7 @@ source .env
 
 > **Pourquoi `source` et pas juste éditer le fichier ?** Les commandes qui suivent (le `cat` ci-dessous, et `generate_rds_provisioning.py`) ont besoin de ces valeurs comme **variables d'environnement**. `source .env` exécute le fichier dans votre shell actuel et — grâce au mot-clé `export` qu'il contient — rend ces variables visibles par les commandes et scripts que vous lancez ensuite, dans ce même terminal.
 
-Puis générez le fichier — les variables shell chargées par `.env` sont interpolées directement dans le code écrit (notez le `EOF` non quoté, qui autorise cette substitution) :
+Puis générez le script — les variables shell chargées par `.env` sont interpolées directement dans le code écrit (notez le `EOF` non quoté, qui autorise cette substitution) :
 
 ```bash
 cat > rds_provisioning.py << EOF
